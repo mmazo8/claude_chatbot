@@ -1,5 +1,5 @@
 node_modules/
 .env
-client/dist/
+server/.env
 *.log
 .DS_Store
