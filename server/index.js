@@ -20,6 +20,10 @@ app.use(
   })
 );
 
+// ── Health check (GET) ───────────────────────────────────────────────────────
+app.get("/health", (req, res) => res.json({ ok: true }));
+app.get("/api/auth", (req, res) => res.json({ ok: true }));
+
 // ── Password protection middleware ──────────────────────────────────────────
 app.use((req, res, next) => {
   // Skip auth check for the auth endpoint itself
@@ -178,6 +182,6 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 });

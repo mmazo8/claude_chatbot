@@ -3,5 +3,3 @@ buildCommand = "npm install --prefix server && npm run build"
 
 [deploy]
 startCommand = "node server/index.js"
-healthcheckPath = "/api/auth"
-healthcheckTimeout = 30
