@@ -20,13 +20,17 @@ app.use(
   })
 );
 
-// ── Health check (GET) ───────────────────────────────────────────────────────
+// ── Health check ─────────────────────────────────────────────────────────────
 app.get("/health", (req, res) => res.json({ ok: true }));
-app.get("/api/auth", (req, res) => res.json({ ok: true }));
 
-// ── Password protection middleware ──────────────────────────────────────────
+// ── Serve React frontend BEFORE auth middleware ───────────────────────────────
+if (process.env.NODE_ENV === "production") {
+  app.use(express.static(path.join(__dirname, "../client/dist")));
+}
+
+// ── Password protection (API routes only) ────────────────────────────────────
 app.use((req, res, next) => {
-  // Skip auth check for the auth endpoint itself
+  if (!req.path.startsWith("/api")) return next();
   if (req.path === "/api/auth") return next();
 
   const token = req.headers["x-auth-token"];
@@ -36,7 +40,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Auth endpoint ────────────────────────────────────────────────────────────
+// ── Auth endpoint ─────────────────────────────────────────────────────────────
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (password === process.env.APP_PASSWORD) {
@@ -46,11 +50,10 @@ app.post("/api/auth", (req, res) => {
   }
 });
 
-// ── Chat endpoint (streaming) ────────────────────────────────────────────────
+// ── Chat endpoint (streaming) ─────────────────────────────────────────────────
 app.post("/api/chat", async (req, res) => {
   const { messages, system, model, temperature, max_tokens } = req.body;
 
-  // Set up SSE headers for streaming
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
@@ -63,7 +66,6 @@ app.post("/api/chat", async (req, res) => {
       temperature: temperature ?? 1,
       stream: true,
       messages: messages.map((msg) => {
-        // Apply cache_control to the last user message for prompt caching
         if (
           msg.role === "user" &&
           messages.indexOf(msg) === messages.length - 1
@@ -83,7 +85,6 @@ app.post("/api/chat", async (req, res) => {
       }),
     };
 
-    // Add system prompt with cache_control if provided
     if (system && system.trim()) {
       requestBody.system = [
         {
@@ -114,7 +115,6 @@ app.post("/api/chat", async (req, res) => {
       return;
     }
 
-    // Stream the response back to the client
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
 
@@ -133,7 +133,6 @@ app.post("/api/chat", async (req, res) => {
           try {
             const parsed = JSON.parse(data);
 
-            // Stream text deltas
             if (
               parsed.type === "content_block_delta" &&
               parsed.delta?.type === "text_delta"
@@ -143,21 +142,19 @@ app.post("/api/chat", async (req, res) => {
               );
             }
 
-            // Send usage stats at the end
             if (parsed.type === "message_delta" && parsed.usage) {
               res.write(
                 `data: ${JSON.stringify({ type: "usage", usage: parsed.usage })}\n\n`
               );
             }
 
-            // Send final usage (includes cache stats)
             if (parsed.type === "message_start" && parsed.message?.usage) {
               res.write(
                 `data: ${JSON.stringify({ type: "usage_start", usage: parsed.message.usage })}\n\n`
               );
             }
           } catch {
-            // Skip malformed JSON lines
+            // skip malformed lines
           }
         }
       }
@@ -174,9 +171,8 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-// ── Serve React frontend in production ──────────────────────────────────────
+// ── Catch-all: serve React app for non-API routes ─────────────────────────────
 if (process.env.NODE_ENV === "production") {
-  app.use(express.static(path.join(__dirname, "../client/dist")));
   app.get("*", (req, res) => {
     res.sendFile(path.join(__dirname, "../client/dist/index.html"));
   });
