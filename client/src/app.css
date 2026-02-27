@@ -1077,3 +1077,11 @@ body,
     border-color: var(--accent);
     color: var(--accent);
 }
+
+/* ── Username in header ───────────────────────────────────────────────────── */
+.header-user {
+    font-size: 11px;
+    color: var(--text3);
+    letter-spacing: 0.06em;
+    font-family: var(--font-mono);
+}
