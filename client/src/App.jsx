@@ -216,9 +216,17 @@ export default function App() {
   const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
 
   const updateActiveConvo = (updater) => {
-    setConversations((prev) =>
-      prev.map((c) => (c.id === activeId ? { ...updater(c), updatedAt: Date.now() } : c))
-    );
+    if (!activeId) {
+      // No active conversation — create one first
+      const convo = newConversation();
+      const updated = { ...updater(convo), updatedAt: Date.now() };
+      setConversations((prev) => [updated, ...prev]);
+      setActiveId(updated.id);
+    } else {
+      setConversations((prev) =>
+        prev.map((c) => (c.id === activeId ? { ...updater(c), updatedAt: Date.now() } : c))
+      );
+    }
   };
 
   const handleLogin = (t) => {
