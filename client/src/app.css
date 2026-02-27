@@ -14,9 +14,9 @@
     --bg3: #1a1a1a;
     --border: #2a2a2a;
     --border2: #333;
-    --text: #e8e8e8;
-    --text2: #888;
-    --text3: #555;
+    --text: #f0f0f0;
+    --text2: #aaa;
+    --text3: #666;
     --accent: #c8a96e;
     --accent2: #e8c98e;
     --green: #4caf7d;
@@ -45,9 +45,9 @@
     --bg3: #e5e4de;
     --border: #d0cfc8;
     --border2: #c0bfb8;
-    --text: #1a1a1a;
-    --text2: #666;
-    --text3: #aaa;
+    --text: #111111;
+    --text2: #444;
+    --text3: #888;
     --accent: #8a6020;
     --accent2: #a07030;
     --green: #2a7a50;
@@ -77,8 +77,8 @@ body,
     background: var(--bg);
     color: var(--text);
     font-family: var(--font-mono);
-    font-size: 13px;
-    line-height: 1.6;
+    font-size: 15px;
+    line-height: 1.7;
     -webkit-font-smoothing: antialiased;
 }
 
@@ -408,7 +408,7 @@ body,
     border: 1px solid var(--border2);
     color: var(--text);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: 14px;
     padding: 10px;
     border-radius: var(--radius);
     resize: none;
@@ -581,9 +581,9 @@ body,
     background: var(--bg2);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 14px 16px;
-    line-height: 1.7;
-    font-size: 13px;
+    padding: 16px 18px;
+    line-height: 1.8;
+    font-size: 15px;
 }
 
 .message-user .message-content {
@@ -793,7 +793,7 @@ body,
     border: 1px solid var(--border2);
     color: var(--text);
     font-family: var(--font-sans);
-    font-size: 13px;
+    font-size: 15px;
     padding: 12px 14px;
     border-radius: var(--radius);
     resize: none;
@@ -936,7 +936,7 @@ body,
 }
 
 .convo-title {
-    font-size: 11px;
+    font-size: 13px;
     color: var(--text);
     white-space: nowrap;
     overflow: hidden;
@@ -1084,4 +1084,30 @@ body,
     color: var(--text3);
     letter-spacing: 0.06em;
     font-family: var(--font-mono);
+}
+
+/* ── Sidebar conversation header with new button ────────────────────────── */
+.convo-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.new-chat-sidebar-btn {
+    background: none;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    padding: 3px 10px;
+    cursor: pointer;
+    border-radius: var(--radius);
+    transition: all 0.15s;
+}
+
+.new-chat-sidebar-btn:hover {
+    background: var(--badge-bg);
+    color: var(--accent2);
 }

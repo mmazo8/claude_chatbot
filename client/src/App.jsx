@@ -401,7 +401,6 @@ export default function App() {
           </select>
           <button className="header-btn theme-btn"           onClick={toggleTheme}       title="toggle theme">{theme === "dark" ? "☀" : "☾"}</button>
           <button className="header-btn clear-btn"           onClick={clearConversation}>clear</button>
-          <button className="header-btn new-chat-header-btn" onClick={newChat}>+ new</button>
           <button className="header-btn logout-btn"          onClick={handleLogout}>logout</button>
         </div>
       </header>
@@ -410,7 +409,10 @@ export default function App() {
         {sidebarOpen && (
           <aside className="sidebar">
             <div className="sidebar-section convo-section">
-              <p className="section-label">conversations</p>
+              <div className="convo-section-header">
+                <p className="section-label" style={{marginBottom: 0}}>conversations</p>
+                <button className="new-chat-sidebar-btn" onClick={newChat}>+ new</button>
+              </div>
               {loadingConvos && <p className="convo-empty">loading...</p>}
               {!loadingConvos && convos.length === 0 && <p className="convo-empty">no conversations yet</p>}
               <div className="convo-list">
