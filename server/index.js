@@ -12,6 +12,13 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Resolve client dist path relative to this file
+const CLIENT_DIST = path.resolve(__dirname, "../client/dist");
+
+console.log("NODE_ENV:", process.env.NODE_ENV);
+console.log("PORT:", PORT);
+console.log("CLIENT_DIST:", CLIENT_DIST);
+
 app.use(express.json({ limit: "10mb" }));
 app.use(
   cors({
@@ -23,10 +30,8 @@ app.use(
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get("/health", (req, res) => res.json({ ok: true }));
 
-// ── Serve React frontend BEFORE auth middleware ───────────────────────────────
-if (process.env.NODE_ENV === "production") {
-  app.use(express.static(path.join(__dirname, "../client/dist")));
-}
+// ── Serve React frontend (always, not just in production) ─────────────────────
+app.use(express.static(CLIENT_DIST));
 
 // ── Password protection (API routes only) ────────────────────────────────────
 app.use((req, res, next) => {
@@ -60,29 +65,32 @@ app.post("/api/chat", async (req, res) => {
   res.flushHeaders();
 
   try {
+    // Clean messages — strip UI-only fields, filter incomplete streaming messages
+    const cleanMessages = messages
+      .filter((msg) => !msg.streaming && msg.content)
+      .map((msg, i, arr) => {
+        const isLastUser = msg.role === "user" && i === arr.length - 1;
+        const text = typeof msg.content === "string"
+          ? msg.content
+          : Array.isArray(msg.content)
+            ? msg.content.map(b => b.text || "").join("")
+            : "";
+
+        if (isLastUser) {
+          return {
+            role: "user",
+            content: [{ type: "text", text, cache_control: { type: "ephemeral" } }],
+          };
+        }
+        return { role: msg.role, content: text };
+      });
+
     const requestBody = {
       model: model || "claude-sonnet-4-20250514",
       max_tokens: max_tokens || 8192,
       temperature: temperature ?? 1,
       stream: true,
-      messages: messages.map((msg) => {
-        if (
-          msg.role === "user" &&
-          messages.indexOf(msg) === messages.length - 1
-        ) {
-          return {
-            role: msg.role,
-            content: [
-              {
-                type: "text",
-                text: msg.content,
-                cache_control: { type: "ephemeral" },
-              },
-            ],
-          };
-        }
-        return msg;
-      }),
+      messages: cleanMessages,
     };
 
     if (system && system.trim()) {
@@ -171,12 +179,10 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-// ── Catch-all: serve React app for non-API routes ─────────────────────────────
-if (process.env.NODE_ENV === "production") {
-  app.get("*", (req, res) => {
-    res.sendFile(path.join(__dirname, "../client/dist/index.html"));
-  });
-}
+// ── Catch-all: always serve React index.html for unknown routes ───────────────
+app.get("*", (req, res) => {
+  res.sendFile(path.join(CLIENT_DIST, "index.html"));
+});
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);

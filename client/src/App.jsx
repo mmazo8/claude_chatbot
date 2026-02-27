@@ -9,7 +9,41 @@ const MODELS = [
   { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
 ];
 
-// ── Login Screen ─────────────────────────────────────────────────────────────
+// ── Storage helpers ───────────────────────────────────────────────────────────
+const STORAGE_KEY = "workbench_conversations";
+
+function loadConversations() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+
+function saveConversations(convos) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(convos));
+}
+
+function newConversation() {
+  return {
+    id: Date.now().toString(),
+    title: "New conversation",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    messages: [],
+    system: "",
+    model: MODELS[1].id,
+  };
+}
+
+function titleFromMessages(messages) {
+  const first = messages.find((m) => m.role === "user");
+  if (!first) return "New conversation";
+  const text = typeof first.content === "string" ? first.content : first.content?.[0]?.text || "";
+  return text.slice(0, 40) + (text.length > 40 ? "…" : "");
+}
+
+// ── Login Screen ──────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -71,24 +105,16 @@ function TokenDisplay({ usage }) {
   return (
     <div className="token-display">
       {usage.input_tokens != null && (
-        <span className="token-chip input">
-          ↑ {usage.input_tokens.toLocaleString()}
-        </span>
+        <span className="token-chip input">↑ {usage.input_tokens.toLocaleString()}</span>
       )}
       {usage.output_tokens != null && (
-        <span className="token-chip output">
-          ↓ {usage.output_tokens.toLocaleString()}
-        </span>
+        <span className="token-chip output">↓ {usage.output_tokens.toLocaleString()}</span>
       )}
       {usage.cache_read_input_tokens > 0 && (
-        <span className="token-chip cache-read">
-          ⚡ {usage.cache_read_input_tokens.toLocaleString()} cached
-        </span>
+        <span className="token-chip cache-read">⚡ {usage.cache_read_input_tokens.toLocaleString()} cached</span>
       )}
       {usage.cache_creation_input_tokens > 0 && (
-        <span className="token-chip cache-write">
-          📝 {usage.cache_creation_input_tokens.toLocaleString()} written
-        </span>
+        <span className="token-chip cache-write">📝 {usage.cache_creation_input_tokens.toLocaleString()} written</span>
       )}
     </div>
   );
@@ -97,21 +123,17 @@ function TokenDisplay({ usage }) {
 // ── Message Bubble ────────────────────────────────────────────────────────────
 function Message({ msg }) {
   const [copied, setCopied] = useState(false);
-
   const copy = () => {
     navigator.clipboard.writeText(msg.content);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
-
   return (
     <div className={`message message-${msg.role}`}>
       <div className="message-header">
         <span className="message-role">{msg.role === "user" ? "you" : "claude"}</span>
         {msg.role === "assistant" && (
-          <button className="copy-btn" onClick={copy}>
-            {copied ? "copied!" : "copy"}
-          </button>
+          <button className="copy-btn" onClick={copy}>{copied ? "copied!" : "copy"}</button>
         )}
       </div>
       <div className="message-content">
@@ -126,13 +148,42 @@ function Message({ msg }) {
   );
 }
 
+// ── Conversation List Item ────────────────────────────────────────────────────
+function ConvoItem({ convo, active, onSelect, onDelete }) {
+  const [confirm, setConfirm] = useState(false);
+  const date = new Date(convo.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+  return (
+    <div className={`convo-item ${active ? "convo-active" : ""}`} onClick={() => onSelect(convo.id)}>
+      <div className="convo-item-body">
+        <span className="convo-title">{convo.title}</span>
+        <span className="convo-date">{date}</span>
+      </div>
+      {confirm ? (
+        <div className="convo-confirm" onClick={(e) => e.stopPropagation()}>
+          <button className="convo-confirm-yes" onClick={() => onDelete(convo.id)}>delete</button>
+          <button className="convo-confirm-no" onClick={() => setConfirm(false)}>cancel</button>
+        </div>
+      ) : (
+        <button
+          className="convo-delete"
+          onClick={(e) => { e.stopPropagation(); setConfirm(true); }}
+          title="Delete"
+        >✕</button>
+      )}
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [token, setToken] = useState(() => sessionStorage.getItem("auth_token") || "");
-  const [messages, setMessages] = useState([]);
+  const [conversations, setConversations] = useState(() => loadConversations());
+  const [activeId, setActiveId] = useState(() => {
+    const convos = loadConversations();
+    return convos.length > 0 ? convos[0].id : null;
+  });
   const [input, setInput] = useState("");
-  const [system, setSystem] = useState("");
-  const [model, setModel] = useState(MODELS[1].id);
   const [temperature, setTemperature] = useState(1);
   const [maxTokens, setMaxTokens] = useState(8192);
   const [streaming, setStreaming] = useState(false);
@@ -140,19 +191,35 @@ export default function App() {
   const [systemOpen, setSystemOpen] = useState(true);
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark");
   const bottomRef = useRef(null);
-  const textareaRef = useRef(null);
   const abortRef = useRef(null);
+
+  // Active conversation derived state
+  const activeConvo = conversations.find((c) => c.id === activeId) || null;
+  const messages = activeConvo?.messages || [];
+  const system = activeConvo?.system || "";
+  const model = activeConvo?.model || MODELS[1].id;
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("theme", theme);
   }, [theme]);
 
-  const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
-
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Persist conversations to localStorage whenever they change
+  useEffect(() => {
+    saveConversations(conversations);
+  }, [conversations]);
+
+  const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+
+  const updateActiveConvo = (updater) => {
+    setConversations((prev) =>
+      prev.map((c) => (c.id === activeId ? { ...updater(c), updatedAt: Date.now() } : c))
+    );
+  };
 
   const handleLogin = (t) => {
     sessionStorage.setItem("auth_token", t);
@@ -164,41 +231,84 @@ export default function App() {
     setToken("");
   };
 
+  const newChat = () => {
+    const convo = newConversation();
+    setConversations((prev) => [convo, ...prev]);
+    setActiveId(convo.id);
+    setInput("");
+  };
+
+  const selectConvo = (id) => {
+    if (streaming) stopStreaming();
+    setActiveId(id);
+    setInput("");
+  };
+
+  const deleteConvo = (id) => {
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+    if (activeId === id) {
+      const remaining = conversations.filter((c) => c.id !== id);
+      setActiveId(remaining.length > 0 ? remaining[0].id : null);
+    }
+  };
+
+  const clearConversation = () => {
+    if (streaming) stopStreaming();
+    if (!activeConvo) return;
+    updateActiveConvo((c) => ({ ...c, messages: [], title: "New conversation" }));
+  };
+
   const sendMessage = useCallback(async () => {
     if (!input.trim() || streaming) return;
 
+    // Create convo if none exists
+    let currentId = activeId;
+    if (!currentId) {
+      const convo = newConversation();
+      setConversations((prev) => [convo, ...prev]);
+      setActiveId(convo.id);
+      currentId = convo.id;
+    }
+
     const userMsg = { role: "user", content: input.trim() };
-    const newMessages = [...messages, userMsg];
-    setMessages(newMessages);
+    const currentMessages = conversations.find((c) => c.id === currentId)?.messages || [];
+    const newMessages = [...currentMessages, userMsg];
+
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === currentId
+          ? {
+              ...c,
+              messages: [...newMessages, { role: "assistant", content: "", streaming: true }],
+              title: c.messages.length === 0 ? titleFromMessages(newMessages) : c.title,
+              updatedAt: Date.now(),
+            }
+          : c
+      )
+    );
     setInput("");
     setStreaming(true);
-
-    // Placeholder for streaming assistant message
-    setMessages((prev) => [...prev, { role: "assistant", content: "", streaming: true }]);
 
     const controller = new AbortController();
     abortRef.current = controller;
 
+    const currentConvo = conversations.find((c) => c.id === currentId);
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-        },
+        headers: { "Content-Type": "application/json", "x-auth-token": token },
         body: JSON.stringify({
           messages: newMessages,
-          system,
-          model,
+          system: currentConvo?.system || "",
+          model: currentConvo?.model || MODELS[1].id,
           temperature,
           max_tokens: maxTokens,
         }),
         signal: controller.signal,
       });
 
-      if (!res.ok) {
-        throw new Error("Request failed");
-      }
+      if (!res.ok) throw new Error("Request failed");
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -210,96 +320,75 @@ export default function App() {
         if (done) break;
 
         const chunk = decoder.decode(value);
-        const lines = chunk.split("\n");
-
-        for (const line of lines) {
+        for (const line of chunk.split("\n")) {
           if (!line.startsWith("data: ")) continue;
           try {
             const parsed = JSON.parse(line.slice(6));
 
             if (parsed.type === "text") {
               fullText += parsed.text;
-              setMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "assistant",
-                  content: fullText,
-                  streaming: true,
-                };
-                return updated;
-              });
+              setConversations((prev) =>
+                prev.map((c) => {
+                  if (c.id !== currentId) return c;
+                  const msgs = [...c.messages];
+                  msgs[msgs.length - 1] = { role: "assistant", content: fullText, streaming: true };
+                  return { ...c, messages: msgs };
+                })
+              );
             }
-
-            if (parsed.type === "usage_start") {
-              usageData = { ...usageData, ...parsed.usage };
-            }
-
-            if (parsed.type === "usage") {
-              usageData = { ...usageData, ...parsed.usage };
-            }
-
+            if (parsed.type === "usage_start") usageData = { ...usageData, ...parsed.usage };
+            if (parsed.type === "usage") usageData = { ...usageData, ...parsed.usage };
             if (parsed.type === "done") {
-              setMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "assistant",
-                  content: fullText,
-                  streaming: false,
-                  usage: usageData,
-                };
-                return updated;
-              });
+              setConversations((prev) =>
+                prev.map((c) => {
+                  if (c.id !== currentId) return c;
+                  const msgs = [...c.messages];
+                  msgs[msgs.length - 1] = { role: "assistant", content: fullText, streaming: false, usage: usageData };
+                  return { ...c, messages: msgs, updatedAt: Date.now() };
+                })
+              );
             }
-
             if (parsed.type === "error") {
-              setMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "assistant",
-                  content: `⚠️ Error: ${parsed.error}`,
-                  streaming: false,
-                };
-                return updated;
-              });
+              setConversations((prev) =>
+                prev.map((c) => {
+                  if (c.id !== currentId) return c;
+                  const msgs = [...c.messages];
+                  msgs[msgs.length - 1] = { role: "assistant", content: `⚠️ Error: ${parsed.error}`, streaming: false };
+                  return { ...c, messages: msgs };
+                })
+              );
             }
-          } catch {
-            // skip
-          }
+          } catch { /* skip */ }
         }
       }
     } catch (err) {
       if (err.name !== "AbortError") {
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1] = {
-            role: "assistant",
-            content: `⚠️ Error: ${err.message}`,
-            streaming: false,
-          };
-          return updated;
-        });
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== currentId) return c;
+            const msgs = [...c.messages];
+            msgs[msgs.length - 1] = { role: "assistant", content: `⚠️ Error: ${err.message}`, streaming: false };
+            return { ...c, messages: msgs };
+          })
+        );
       }
     }
 
     setStreaming(false);
-  }, [input, messages, streaming, token, system, model, temperature, maxTokens]);
+  }, [input, conversations, activeId, streaming, token, temperature, maxTokens]);
 
   const stopStreaming = () => {
     abortRef.current?.abort();
     setStreaming(false);
-    setMessages((prev) => {
-      const updated = [...prev];
-      const last = updated[updated.length - 1];
-      if (last?.streaming) {
-        updated[updated.length - 1] = { ...last, streaming: false };
-      }
-      return updated;
-    });
-  };
-
-  const clearConversation = () => {
-    if (streaming) stopStreaming();
-    setMessages([]);
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id !== activeId) return c;
+        const msgs = [...c.messages];
+        const last = msgs[msgs.length - 1];
+        if (last?.streaming) msgs[msgs.length - 1] = { ...last, streaming: false };
+        return { ...c, messages: msgs };
+      })
+    );
   };
 
   const handleKeyDown = (e) => {
@@ -326,7 +415,7 @@ export default function App() {
         <div className="header-right">
           <select
             value={model}
-            onChange={(e) => setModel(e.target.value)}
+            onChange={(e) => updateActiveConvo((c) => ({ ...c, model: e.target.value }))}
             className="model-select"
           >
             {MODELS.map((m) => (
@@ -345,12 +434,34 @@ export default function App() {
         {/* ── Sidebar ── */}
         {sidebarOpen && (
           <aside className="sidebar">
+
+            {/* New Chat Button */}
+            <div className="sidebar-section">
+              <button className="new-chat-btn" onClick={newChat}>+ new chat</button>
+            </div>
+
+            {/* Conversation History */}
+            <div className="sidebar-section convo-section">
+              <p className="section-label">conversations</p>
+              {conversations.length === 0 && (
+                <p className="convo-empty">no saved conversations</p>
+              )}
+              <div className="convo-list">
+                {conversations.map((c) => (
+                  <ConvoItem
+                    key={c.id}
+                    convo={c}
+                    active={c.id === activeId}
+                    onSelect={selectConvo}
+                    onDelete={deleteConvo}
+                  />
+                ))}
+              </div>
+            </div>
+
             {/* System Prompt */}
             <div className="sidebar-section">
-              <button
-                className="section-toggle"
-                onClick={() => setSystemOpen((v) => !v)}
-              >
+              <button className="section-toggle" onClick={() => setSystemOpen((v) => !v)}>
                 system prompt {systemOpen ? "▾" : "▸"}
               </button>
               {systemOpen && (
@@ -358,8 +469,8 @@ export default function App() {
                   className="system-textarea"
                   placeholder="You are a helpful assistant..."
                   value={system}
-                  onChange={(e) => setSystem(e.target.value)}
-                  rows={8}
+                  onChange={(e) => updateActiveConvo((c) => ({ ...c, system: e.target.value }))}
+                  rows={6}
                 />
               )}
             </div>
@@ -367,31 +478,15 @@ export default function App() {
             {/* Parameters */}
             <div className="sidebar-section">
               <p className="section-label">parameters</p>
-
               <div className="param-row">
                 <label>temperature <span className="param-value">{temperature}</span></label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={temperature}
-                  onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                  className="slider"
-                />
+                <input type="range" min="0" max="1" step="0.01" value={temperature}
+                  onChange={(e) => setTemperature(parseFloat(e.target.value))} className="slider" />
               </div>
-
               <div className="param-row">
                 <label>max tokens <span className="param-value">{maxTokens.toLocaleString()}</span></label>
-                <input
-                  type="range"
-                  min="256"
-                  max="32000"
-                  step="256"
-                  value={maxTokens}
-                  onChange={(e) => setMaxTokens(parseInt(e.target.value))}
-                  className="slider"
-                />
+                <input type="range" min="256" max="32000" step="256" value={maxTokens}
+                  onChange={(e) => setMaxTokens(parseInt(e.target.value))} className="slider" />
               </div>
             </div>
 
@@ -420,11 +515,7 @@ export default function App() {
               <Message key={i} msg={msg} />
             ))}
             {streaming && messages[messages.length - 1]?.streaming && (
-              <div className="streaming-indicator">
-                <span />
-                <span />
-                <span />
-              </div>
+              <div className="streaming-indicator"><span /><span /><span /></div>
             )}
             <div ref={bottomRef} />
           </div>
@@ -432,7 +523,6 @@ export default function App() {
           {/* ── Input Bar ── */}
           <div className="input-area">
             <textarea
-              ref={textareaRef}
               className="chat-input"
               placeholder="send a message..."
               value={input}
@@ -444,15 +534,9 @@ export default function App() {
             <div className="input-actions">
               <span className="input-hint">⌘↵ to send</span>
               {streaming ? (
-                <button className="stop-btn" onClick={stopStreaming}>
-                  ◼ stop
-                </button>
+                <button className="stop-btn" onClick={stopStreaming}>◼ stop</button>
               ) : (
-                <button
-                  className="send-btn"
-                  onClick={sendMessage}
-                  disabled={!input.trim()}
-                >
+                <button className="send-btn" onClick={sendMessage} disabled={!input.trim()}>
                   send ↵
                 </button>
               )}
