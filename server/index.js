@@ -250,61 +250,6 @@ async function anthropicFetch(path, body) {
   });
 }
 
-function buildAnthropicRequestBody({ messages, system, model, temperature, max_tokens }) {
-  const cleanMessages = (messages || [])
-    .filter((msg) => !msg.streaming && msg.content)
-    .map((msg, i, arr) => {
-      const isLastUser = msg.role === "user" && i === arr.length - 1;
-      const text =
-        typeof msg.content === "string"
-          ? msg.content
-          : Array.isArray(msg.content)
-            ? msg.content.map((b) => b.text || "").join("")
-            : "";
-
-      // Keep your caching strategy: only the *latest user turn* gets an ephemeral cache breakpoint.
-      if (isLastUser) {
-        return {
-          role: "user",
-          content: [{ type: "text", text, cache_control: { type: "ephemeral" } }],
-        };
-      }
-      return { role: msg.role, content: text };
-    });
-
-  const requestBody = {
-    model,
-    messages: cleanMessages,
-  };
-
-  // Useful for message creation (chat). Safe to omit for count_tokens.
-  if (typeof temperature === "number") requestBody.temperature = temperature;
-  if (typeof max_tokens === "number") requestBody.max_tokens = max_tokens;
-
-  // System prompt must be top-level (no "system" role in Messages API)
-  if (system && system.trim()) {
-    requestBody.system = [
-      { type: "text", text: system, cache_control: { type: "ephemeral" } },
-    ];
-  }
-
-  return requestBody;
-}
-
-async function anthropicFetch(path, body) {
-  return fetch(`https://api.anthropic.com${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-      // keep your beta flags (remove if you don't need them)
-      "anthropic-beta": "context-1m-2025-08-07,compact-2026-01-12",
-    },
-    body: JSON.stringify(body),
-  });
-}
-
 // ── Token counting (prompt tracker) ───────────────────────────────────────────
 app.post("/api/count-tokens", async (req, res) => {
   const { messages, system, model } = req.body;
