@@ -353,9 +353,13 @@ export default function App() {
                 msgs[msgs.length - 1] = assistantMsg;
                 return { ...prev, [currentId]: msgs };
               });
-              // Persist both messages to DB
-              apiFetch(`/api/conversations/${currentId}/messages`, { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify(userMsg) }).catch(console.error);
-              apiFetch(`/api/conversations/${currentId}/messages`, { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify(assistantMsg) }).catch(console.error);
+              // Persist sequentially with guaranteed timestamp gap
+              const userTs = Date.now();
+              const assistantTs = userTs + 1;
+              try {
+                await apiFetch(`/api/conversations/${currentId}/messages`, { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify({ ...userMsg, created_at: userTs }) });
+                await apiFetch(`/api/conversations/${currentId}/messages`, { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify({ ...assistantMsg, created_at: assistantTs }) });
+              } catch (e) { console.error("Failed to save messages:", e); }
             }
             if (parsed.type === "error") {
               setMsgCache((prev) => { const msgs = [...(prev[currentId] || [])]; msgs[msgs.length - 1] = { role: "assistant", content: `⚠️ Error: ${parsed.error}`, streaming: false }; return { ...prev, [currentId]: msgs }; });

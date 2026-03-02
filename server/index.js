@@ -179,8 +179,8 @@ app.delete("/api/conversations/:id", async (req, res) => {
 app.post("/api/conversations/:id/messages", async (req, res) => {
   const username = req.headers["x-username"];
   if (!username) return res.status(400).json({ error: "Username required" });
-  const { role, content, usage } = req.body;
-  const now = Date.now();
+  const { role, content, usage, created_at } = req.body;
+  const now = created_at || Date.now();
   try {
     await pool.query(
       "INSERT INTO messages (conversation_id, username, role, content, usage, created_at) VALUES ($1,$2,$3,$4,$5,$6)",
