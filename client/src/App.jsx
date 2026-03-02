@@ -154,6 +154,10 @@ export default function App() {
   const [msgCache, setMsgCache] = useState({});
 
   const [input,       setInput]       = useState("");
+  const [promptTokens, setPromptTokens] = useState(null);
+  const [promptTokensLoading, setPromptTokensLoading] = useState(false);
+  const [promptTokensError, setPromptTokensError] = useState(null);
+  const tokenCountReqRef = useRef(0);
   const [temperature, setTemperature] = useState(1);
   const [maxTokens,   setMaxTokens]   = useState(DEFAULT_MAX_TOKENS);
   const [streaming,   setStreaming]   = useState(false);
@@ -168,6 +172,56 @@ export default function App() {
   const messages       = msgCache[activeId] || [];
   const system         = activeConvo?.system || "";
   const model          = activeConvo?.model  || DEFAULT_MODEL;
+
+
+  // ── Prompt token counter (Claude Token Count API) ──
+  useEffect(() => {
+    const trimmed = input.trim();
+
+    // Only show a count when there is something to send (and we're not already streaming)
+    if (!activeId || !trimmed || streaming) {
+      setPromptTokens(null);
+      setPromptTokensError(null);
+      setPromptTokensLoading(false);
+      return;
+    }
+
+    const reqId = ++tokenCountReqRef.current;
+    setPromptTokensLoading(true);
+    setPromptTokensError(null);
+
+    const timer = setTimeout(() => {
+      (async () => {
+        try {
+          const payload = {
+            model,
+            system,
+            messages: [
+              ...(messages || []).filter((m) => !m.streaming && m.content),
+              { role: "user", content: trimmed },
+            ],
+          };
+
+          const data = await apiFetch("/api/count-tokens", {
+            method: "POST",
+            headers: apiHeaders(token, username),
+            body: JSON.stringify(payload),
+          });
+
+          if (tokenCountReqRef.current !== reqId) return;
+          setPromptTokens(data.input_tokens);
+        } catch (err) {
+          if (tokenCountReqRef.current !== reqId) return;
+          setPromptTokens(null);
+          setPromptTokensError("token count failed");
+        } finally {
+          if (tokenCountReqRef.current === reqId) setPromptTokensLoading(false);
+        }
+      })();
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [input, activeId, model, system, streaming, token, username, messages]);
 
   // ── Theme ──
   useEffect(() => { document.documentElement.setAttribute("data-theme", theme); localStorage.setItem("theme", theme); }, [theme]);
@@ -476,6 +530,9 @@ export default function App() {
             <textarea className="chat-input" placeholder="send a message..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} rows={3} disabled={streaming} />
             <div className="input-actions">
               <span className="input-hint">⌘↵ to send</span>
+              <span className="token-count" title="Claude input tokens for what will be sent">
+                {promptTokensLoading ? "counting…" : (promptTokens !== null ? `${promptTokens} tokens` : "")}
+              </span>
               {streaming
                 ? <button className="stop-btn" onClick={stopStreaming}>◼ stop</button>
                 : <button className="send-btn" onClick={sendMessage} disabled={!input.trim()}>send ↵</button>}

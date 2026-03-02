@@ -195,6 +195,143 @@ app.post("/api/conversations/:id/messages", async (req, res) => {
   }
 });
 
+function buildAnthropicRequestBody({ messages, system, model, temperature, max_tokens }) {
+  const cleanMessages = (messages || [])
+    .filter((msg) => !msg.streaming && msg.content)
+    .map((msg, i, arr) => {
+      const isLastUser = msg.role === "user" && i === arr.length - 1;
+      const text =
+        typeof msg.content === "string"
+          ? msg.content
+          : Array.isArray(msg.content)
+            ? msg.content.map((b) => b.text || "").join("")
+            : "";
+
+      // Keep your caching strategy: only the *latest user turn* gets an ephemeral cache breakpoint.
+      if (isLastUser) {
+        return {
+          role: "user",
+          content: [{ type: "text", text, cache_control: { type: "ephemeral" } }],
+        };
+      }
+      return { role: msg.role, content: text };
+    });
+
+  const requestBody = {
+    model,
+    messages: cleanMessages,
+  };
+
+  // Useful for message creation (chat). Safe to omit for count_tokens.
+  if (typeof temperature === "number") requestBody.temperature = temperature;
+  if (typeof max_tokens === "number") requestBody.max_tokens = max_tokens;
+
+  // System prompt must be top-level (no "system" role in Messages API)
+  if (system && system.trim()) {
+    requestBody.system = [
+      { type: "text", text: system, cache_control: { type: "ephemeral" } },
+    ];
+  }
+
+  return requestBody;
+}
+
+async function anthropicFetch(path, body) {
+  return fetch(`https://api.anthropic.com${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+      // keep your beta flags (remove if you don't need them)
+      "anthropic-beta": "context-1m-2025-08-07,compact-2026-01-12",
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+function buildAnthropicRequestBody({ messages, system, model, temperature, max_tokens }) {
+  const cleanMessages = (messages || [])
+    .filter((msg) => !msg.streaming && msg.content)
+    .map((msg, i, arr) => {
+      const isLastUser = msg.role === "user" && i === arr.length - 1;
+      const text =
+        typeof msg.content === "string"
+          ? msg.content
+          : Array.isArray(msg.content)
+            ? msg.content.map((b) => b.text || "").join("")
+            : "";
+
+      // Keep your caching strategy: only the *latest user turn* gets an ephemeral cache breakpoint.
+      if (isLastUser) {
+        return {
+          role: "user",
+          content: [{ type: "text", text, cache_control: { type: "ephemeral" } }],
+        };
+      }
+      return { role: msg.role, content: text };
+    });
+
+  const requestBody = {
+    model,
+    messages: cleanMessages,
+  };
+
+  // Useful for message creation (chat). Safe to omit for count_tokens.
+  if (typeof temperature === "number") requestBody.temperature = temperature;
+  if (typeof max_tokens === "number") requestBody.max_tokens = max_tokens;
+
+  // System prompt must be top-level (no "system" role in Messages API)
+  if (system && system.trim()) {
+    requestBody.system = [
+      { type: "text", text: system, cache_control: { type: "ephemeral" } },
+    ];
+  }
+
+  return requestBody;
+}
+
+async function anthropicFetch(path, body) {
+  return fetch(`https://api.anthropic.com${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+      // keep your beta flags (remove if you don't need them)
+      "anthropic-beta": "context-1m-2025-08-07,compact-2026-01-12",
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+// ── Token counting (prompt tracker) ───────────────────────────────────────────
+app.post("/api/count-tokens", async (req, res) => {
+  const { messages, system, model } = req.body;
+
+  try {
+    const body = buildAnthropicRequestBody({
+      messages,
+      system,
+      model: model || "claude-opus-4-6",
+    });
+
+    const response = await anthropicFetch("/v1/messages/count_tokens", body);
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: data?.error?.message || "Token count failed",
+      });
+    }
+
+    return res.json({ input_tokens: data.input_tokens });
+  } catch (err) {
+    console.error("Count tokens error:", err);
+    return res.status(500).json({ error: err.message || "Server error" });
+  }
+});
+
 // ── Chat endpoint (streaming) ─────────────────────────────────────────────────
 app.post("/api/chat", async (req, res) => {
   const { messages, system, model, temperature, max_tokens } = req.body;
@@ -220,28 +357,17 @@ app.post("/api/chat", async (req, res) => {
         return { role: msg.role, content: text };
       });
 
-    const requestBody = {
-      model: model || "claude-opus-4-6",
-      max_tokens: max_tokens || 32000,
-      temperature: temperature ?? 1,
-      stream: true,
-      messages: cleanMessages,
-    };
+    const requestBody = buildAnthropicRequestBody({
+    messages,
+    system,
+    model: model || "claude-opus-4-6",
+    temperature: temperature ?? 1,
+    max_tokens: max_tokens || 32000,
+  });
 
-    if (system && system.trim()) {
-      requestBody.system = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
-    }
+  requestBody.stream = true;
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": "context-1m-2025-08-07,compact-2026-01-12",
-      },
-      body: JSON.stringify(requestBody),
-    });
+  const response = await anthropicFetch("/v1/messages", requestBody);
 
     if (!response.ok) {
       const error = await response.json();

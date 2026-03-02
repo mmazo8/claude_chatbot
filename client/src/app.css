@@ -1111,3 +1111,11 @@ body,
     background: var(--badge-bg);
     color: var(--accent2);
 }
+
+/* Prompt token counter */
+.token-count {
+    font-size: 12px;
+    opacity: 0.8;
+    margin-left: 10px;
+    white-space: nowrap;
+}
