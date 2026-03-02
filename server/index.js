@@ -221,7 +221,7 @@ app.post("/api/chat", async (req, res) => {
       });
 
     const requestBody = {
-      model: model || "claude-opus-4-5-20251101",
+      model: model || "claude-opus-4-6",
       max_tokens: max_tokens || 32000,
       temperature: temperature ?? 1,
       stream: true,

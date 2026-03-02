@@ -4,9 +4,9 @@ import remarkGfm from "remark-gfm";
 import "./app.css";
 
 const MODELS = [
-  { id: "claude-opus-4-5-20251101",  label: "Claude Opus 4.5" },
-  { id: "claude-sonnet-4-5-20251022", label: "Claude Sonnet 4.5" },
-  { id: "claude-haiku-4-5-20251001",  label: "Claude Haiku 4.5" },
+  { id: "claude-opus-4-6",    label: "Claude Opus 4.6 (1M ctx)" },
+  { id: "claude-sonnet-4-6",  label: "Claude Sonnet 4.6 (1M ctx)" },
+  { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
 ];
 const DEFAULT_MODEL     = MODELS[0].id;
 const DEFAULT_MAX_TOKENS = 32000;
