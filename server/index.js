@@ -237,6 +237,8 @@ function buildAnthropicRequestBody({ messages, system, model, temperature, max_t
 }
 
 async function anthropicFetch(path, body) {
+  console.log("🧠 Sending to Anthropic model:", body.model);
+  console.log("🧪 Beta header:", "context-1m-2025-08-07");
   return fetch(`https://api.anthropic.com${path}`, {
     method: "POST",
     headers: {
@@ -311,6 +313,9 @@ app.post("/api/chat", async (req, res) => {
   });
 
   requestBody.stream = true;
+
+  console.log("🧠 MODEL BEING SENT TO ANTHROPIC:", requestBody.model);
+
 
   const response = await anthropicFetch("/v1/messages", requestBody);
 
