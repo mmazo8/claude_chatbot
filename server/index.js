@@ -244,7 +244,7 @@ async function anthropicFetch(path, body) {
       "x-api-key": process.env.ANTHROPIC_API_KEY,
       "anthropic-version": "2023-06-01",
       // keep your beta flags (remove if you don't need them)
-      "anthropic-beta": "context-1m-2025-08-07,compact-2026-01-12",
+      "anthropic-beta": "context-1m-2025-08-07",
     },
     body: JSON.stringify(body),
   });
@@ -320,6 +320,7 @@ app.post("/api/chat", async (req, res) => {
       res.end();
       return;
     }
+    
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
