@@ -76,8 +76,8 @@ function LoginScreen({ onLogin }) {
 }
 
 // ── Token Counter ─────────────────────────────────────────────────────────────
-function TokenDisplay({ usage }) {
-  if (!usage) return null;
+function TokenDisplay({ usage, show }) {
+  if (!usage || !show) return null;
   return (
     <div className="token-display">
       {usage.input_tokens        != null && <span className="token-chip input">↑ {usage.input_tokens.toLocaleString()}</span>}
@@ -89,21 +89,23 @@ function TokenDisplay({ usage }) {
 }
 
 // ── Message Bubble ────────────────────────────────────────────────────────────
-function Message({ msg }) {
+function Message({ msg, showTokens }) {
   const [copied, setCopied] = useState(false);
   const copy = () => { navigator.clipboard.writeText(msg.content); setCopied(true); setTimeout(() => setCopied(false), 1500); };
   return (
     <div className={`message message-${msg.role}`}>
       <div className="message-header">
         <span className="message-role">{msg.role === "user" ? "you" : "claude"}</span>
-        {msg.role === "assistant" && <button className="copy-btn" onClick={copy}>{copied ? "copied!" : "copy"}</button>}
+        {/* FIX: copy button now shown for both user and assistant messages */}
+        <button className="copy-btn" onClick={copy}>{copied ? "copied!" : "copy"}</button>
       </div>
       <div className="message-content">
         {msg.role === "assistant"
           ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
           : <p style={{ whiteSpace: "pre-wrap" }}>{msg.content}</p>}
       </div>
-      {msg.usage && <TokenDisplay usage={msg.usage} />}
+      {/* FIX: pass show prop to toggle token display */}
+      {msg.usage && <TokenDisplay usage={msg.usage} show={showTokens} />}
     </div>
   );
 }
@@ -114,7 +116,14 @@ function ConvoItem({ convo, active, onSelect, onDelete, onRename }) {
   const [editing, setEditing] = useState(false);
   const [editVal, setEditVal] = useState(convo.title);
   const inputRef = useRef(null);
-  const date = new Date(convo.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+  // FIX: coerce updated_at to a number before passing to Date constructor
+  // The DB may return it as a string; Number() handles both string and number forms
+  const ts = Number(convo.updated_at);
+  const dateObj = new Date(ts);
+  const date = isNaN(dateObj.getTime())
+    ? ""
+    : dateObj.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
   const startEdit = (e) => { e.stopPropagation(); setEditVal(convo.title); setEditing(true); setTimeout(() => inputRef.current?.focus(), 0); };
   const commitEdit = () => { if (editVal.trim()) onRename(convo.id, editVal.trim()); setEditing(false); };
@@ -165,6 +174,12 @@ export default function App() {
   const [systemOpen,  setSystemOpen]  = useState(true);
   const [theme,       setTheme]       = useState(() => localStorage.getItem("theme") || "dark");
 
+  // FIX: toggle for showing/hiding token tags on Claude messages
+  const [showTokens, setShowTokens] = useState(() => {
+    const saved = localStorage.getItem("show_tokens");
+    return saved === null ? true : saved === "true";
+  });
+
   const bottomRef = useRef(null);
   const abortRef  = useRef(null);
 
@@ -173,12 +188,9 @@ export default function App() {
   const system         = activeConvo?.system || "";
   const model          = activeConvo?.model  || DEFAULT_MODEL;
 
-
   // ── Prompt token counter (Claude Token Count API) ──
   useEffect(() => {
     const trimmed = input.trim();
-
-    // Only show a count when there is something to send (and we're not already streaming)
     if (!activeId || !trimmed || streaming) {
       setPromptTokens(null);
       setPromptTokensError(null);
@@ -226,74 +238,62 @@ export default function App() {
   // ── Theme ──
   useEffect(() => { document.documentElement.setAttribute("data-theme", theme); localStorage.setItem("theme", theme); }, [theme]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
   const toggleTheme = () => setTheme((t) => t === "dark" ? "light" : "dark");
 
-  // ── Load conversations on login ──
-  useEffect(() => {
-    if (!token || !username) return;
-    loadConversations();
-  }, [token, username]);
-
-  const loadConversations = async () => {
-    setLoadingConvos(true);
-    try {
-      const data = await apiFetch("/api/conversations", { headers: apiHeaders(token, username) });
-      setConvos(data);
-      if (data.length > 0) setActiveId(data[0].id);
-    } catch (err) { console.error("Failed to load conversations:", err); }
-    setLoadingConvos(false);
-  };
-
-  // ── Load messages when switching conversations ──
-  useEffect(() => {
-    if (!activeId || msgCache[activeId]) return;
-    loadMessages(activeId);
-  }, [activeId]);
-
-  const loadMessages = async (id) => {
-    try {
-      const data = await apiFetch(`/api/conversations/${id}`, { headers: apiHeaders(token, username) });
-      setMsgCache((prev) => ({ ...prev, [id]: data.messages || [] }));
-      // Also sync any metadata updates
-      setConvos((prev) => prev.map((c) => c.id === id ? { ...c, system: data.system, model: data.model } : c));
-    } catch (err) { console.error("Failed to load messages:", err); }
-  };
+  // FIX: persist token toggle preference
+  const toggleShowTokens = () => setShowTokens((v) => {
+    const next = !v;
+    localStorage.setItem("show_tokens", String(next));
+    return next;
+  });
 
   // ── Auth ──
-  const handleLogin = (t, u) => {
-    sessionStorage.setItem("auth_token",   t);
-    sessionStorage.setItem("auth_username", u);
-    setToken(t); setUsername(u);
-  };
-  const handleLogout = () => {
-    sessionStorage.removeItem("auth_token");
-    sessionStorage.removeItem("auth_username");
-    setToken(""); setUsername(""); setConvos([]); setActiveId(null); setMsgCache({});
-  };
+  const handleLogin  = (tok, user) => { sessionStorage.setItem("auth_token", tok); sessionStorage.setItem("auth_username", user); setToken(tok); setUsername(user); };
+  const handleLogout = () => { sessionStorage.clear(); setToken(""); setUsername(""); setConvos([]); setActiveId(null); setMsgCache({}); };
 
-  // ── Conversations ──
+  if (!token) return <LoginScreen onLogin={handleLogin} />;
+
+  // ── Load conversations ──
+  useEffect(() => {
+    if (!token) return;
+    setLoadingConvos(true);
+    apiFetch("/api/conversations", { headers: apiHeaders(token, username) })
+      .then((data) => { setConvos(data); if (data.length > 0) setActiveId(data[0].id); })
+      .catch(console.error)
+      .finally(() => setLoadingConvos(false));
+  }, [token]);
+
+  // ── Load messages for active convo ──
+  useEffect(() => {
+    if (!activeId || msgCache[activeId]) return;
+    apiFetch(`/api/conversations/${activeId}`, { headers: apiHeaders(token, username) })
+      .then((data) => { setMsgCache((prev) => ({ ...prev, [activeId]: data.messages || [] })); })
+      .catch(console.error);
+  }, [activeId]);
+
+  // ── Conversation management ──
   const newChat = async () => {
-    const convo = newConvoObj();
+    const convo = newConvoObj(model);
     try {
       await apiFetch("/api/conversations", { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify(convo) });
       setConvos((prev) => [convo, ...prev]);
       setMsgCache((prev) => ({ ...prev, [convo.id]: [] }));
       setActiveId(convo.id);
-      setInput("");
-    } catch (err) { console.error("Failed to create conversation:", err); }
+    } catch (err) { console.error(err); }
   };
 
-  const selectConvo = (id) => { if (streaming) stopStreaming(); setActiveId(id); setInput(""); };
+  const selectConvo = (id) => { setActiveId(id); };
 
   const deleteConvo = async (id) => {
     try {
       await apiFetch(`/api/conversations/${id}`, { method: "DELETE", headers: apiHeaders(token, username) });
-      setConvos((prev) => prev.filter((c) => c.id !== id));
-      setMsgCache((prev) => { const n = { ...prev }; delete n[id]; return n; });
-      if (activeId === id) {
-        const remaining = convos.filter((c) => c.id !== id);
+      setConvos((prev) => {
+        const remaining = prev.filter((c) => c.id !== id);
         setActiveId(remaining.length > 0 ? remaining[0].id : null);
-      }
+        return remaining;
+      });
+      setMsgCache((prev) => { const next = { ...prev }; delete next[id]; return next; });
     } catch (err) { console.error("Failed to delete:", err); }
   };
 
@@ -305,7 +305,6 @@ export default function App() {
 
   const updateConvoMeta = async (field, value) => {
     if (!activeId) {
-      // No active convo — create one first
       const convo = newConvoObj();
       convo[field] = value;
       try {
@@ -324,7 +323,6 @@ export default function App() {
   const clearConversation = async () => {
     if (streaming) stopStreaming();
     if (!activeId) return;
-    // Delete and recreate as fresh
     await deleteConvo(activeId);
     await newChat();
   };
@@ -336,7 +334,6 @@ export default function App() {
     let currentId = activeId;
     let currentConvo = activeConvo;
 
-    // Create convo if none active
     if (!currentId) {
       const convo = newConvoObj(DEFAULT_MODEL);
       try {
@@ -353,10 +350,8 @@ export default function App() {
     const userMsg = { role: "user", content: input.trim() };
     const newMessages = [...currentMessages, userMsg];
 
-    // Optimistically update UI
     setMsgCache((prev) => ({ ...prev, [currentId]: [...newMessages, { role: "assistant", content: "", streaming: true }] }));
 
-    // Auto-title on first message
     if (currentMessages.length === 0) {
       const title = titleFromMessages(newMessages);
       setConvos((prev) => prev.map((c) => c.id === currentId ? { ...c, title } : c));
@@ -407,7 +402,6 @@ export default function App() {
                 msgs[msgs.length - 1] = assistantMsg;
                 return { ...prev, [currentId]: msgs };
               });
-              // Persist sequentially with guaranteed timestamp gap
               const userTs = Date.now();
               const assistantTs = userTs + 1;
               try {
@@ -416,50 +410,51 @@ export default function App() {
               } catch (e) { console.error("Failed to save messages:", e); }
             }
             if (parsed.type === "error") {
-              setMsgCache((prev) => { const msgs = [...(prev[currentId] || [])]; msgs[msgs.length - 1] = { role: "assistant", content: `⚠️ Error: ${parsed.error}`, streaming: false }; return { ...prev, [currentId]: msgs }; });
+              setMsgCache((prev) => {
+                const msgs = [...(prev[currentId] || [])];
+                msgs[msgs.length - 1] = { role: "assistant", content: `Error: ${parsed.message}` };
+                return { ...prev, [currentId]: msgs };
+              });
             }
-          } catch { /* skip */ }
+          } catch {}
         }
       }
     } catch (err) {
       if (err.name !== "AbortError") {
-        setMsgCache((prev) => { const msgs = [...(prev[currentId] || [])]; msgs[msgs.length - 1] = { role: "assistant", content: `⚠️ Error: ${err.message}`, streaming: false }; return { ...prev, [currentId]: msgs }; });
+        setMsgCache((prev) => {
+          const msgs = [...(prev[currentId] || [])];
+          if (msgs[msgs.length - 1]?.streaming) msgs[msgs.length - 1] = { role: "assistant", content: "Request failed." };
+          return { ...prev, [currentId]: msgs };
+        });
       }
+    } finally {
+      setStreaming(false);
+      abortRef.current = null;
     }
-    setStreaming(false);
-  }, [input, msgCache, activeId, activeConvo, streaming, token, username, temperature, maxTokens]);
+  }, [input, streaming, activeId, activeConvo, msgCache, token, username, temperature, maxTokens]);
 
-  const stopStreaming = () => {
-    abortRef.current?.abort();
-    setStreaming(false);
-    if (!activeId) return;
-    setMsgCache((prev) => {
-      const msgs = [...(prev[activeId] || [])];
-      const last = msgs[msgs.length - 1];
-      if (last?.streaming) msgs[msgs.length - 1] = { ...last, streaming: false };
-      return { ...prev, [activeId]: msgs };
-    });
+  const stopStreaming = () => { abortRef.current?.abort(); setStreaming(false); };
+
+  const handleKeyDown = (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); sendMessage(); }
   };
-
-  const handleKeyDown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendMessage(); } };
-
-  if (!token || !username) return <LoginScreen onLogin={handleLogin} />;
 
   return (
     <div className="app">
       <header className="header">
         <div className="header-left">
-          <button className="sidebar-toggle" onClick={() => setSidebarOpen((v) => !v)}>{sidebarOpen ? "◀" : "▶"}</button>
-          <span className="header-title"><span className="logo-bracket">[</span>WORKBENCH<span className="logo-bracket">]</span></span>
-          <span className="header-user">@{username}</span>
+          <button className="sidebar-toggle" onClick={() => setSidebarOpen((v) => !v)}>☰</button>
+          <div className="logo"><span className="logo-bracket">[</span><span className="logo-text">WORKBENCH</span><span className="logo-bracket">]</span></div>
         </div>
         <div className="header-right">
-          <select value={model} onChange={(e) => updateConvoMeta("model", e.target.value)} className="model-select">
-            {MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-          </select>
-          <button className="header-btn theme-btn"           onClick={toggleTheme}       title="toggle theme">{theme === "dark" ? "☀" : "☾"}</button>
-          <button className="header-btn clear-btn"           onClick={clearConversation}>clear</button>
-          <button className="header-btn logout-btn"          onClick={handleLogout}>logout</button>
+          <span className="header-user">{username}</span>
+          {/* FIX: token tags toggle button */}
+          <button className={`header-btn token-toggle-btn ${showTokens ? "active" : ""}`} onClick={toggleShowTokens} title="Toggle token display">
+            {showTokens ? "tags ●" : "tags ○"}
+          </button>
+          <button className="header-btn theme-btn" onClick={toggleTheme}>{theme === "dark" ? "☀" : "☾"}</button>
+          <button className="header-btn clear-btn"  onClick={clearConversation}>clear</button>
+          <button className="header-btn logout-btn" onClick={handleLogout}>logout</button>
         </div>
       </header>
 
@@ -503,6 +498,13 @@ export default function App() {
             </div>
 
             <div className="sidebar-section">
+              <p className="section-label">model</p>
+              <select className="model-select" value={model} onChange={(e) => updateConvoMeta("model", e.target.value)}>
+                {MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+            </div>
+
+            <div className="sidebar-section">
               <p className="section-label">active features</p>
               <div className="badge-list">
                 <span className="badge">context-1m</span>
@@ -521,13 +523,22 @@ export default function App() {
                 <p className="empty-hint">⌘↵ or Ctrl↵ to send</p>
               </div>
             )}
-            {messages.map((msg, i) => <Message key={i} msg={msg} />)}
+            {messages.map((msg, i) => <Message key={i} msg={msg} showTokens={showTokens} />)}
             {streaming && messages[messages.length - 1]?.streaming && <div className="streaming-indicator"><span /><span /><span /></div>}
             <div ref={bottomRef} />
           </div>
 
           <div className="input-area">
-            <textarea className="chat-input" placeholder="send a message..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} rows={3} disabled={streaming} />
+            {/* FIX: resize is now "vertical" so user can drag the textarea taller/shorter */}
+            <textarea
+              className="chat-input"
+              placeholder="send a message..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              rows={3}
+              disabled={streaming}
+            />
             <div className="input-actions">
               <span className="input-hint">⌘↵ to send</span>
               <span className="token-count" title="Claude input tokens for what will be sent">
