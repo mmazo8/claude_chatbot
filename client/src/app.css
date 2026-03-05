@@ -1119,3 +1119,91 @@ body,
     margin-left: 10px;
     white-space: nowrap;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   PASTE THESE INTO app.css
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* FIX 1: copy button — hidden by default, fades in on message hover
+   Find the existing .copy-btn block and REPLACE it with this: */
+.copy-btn {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--text3);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: var(--radius);
+    transition: all 0.15s, opacity 0.15s;
+    letter-spacing: 0.04em;
+    opacity: 0;                /* hidden by default */
+}
+.message:hover .copy-btn {
+    opacity: 1;                /* show on message hover */
+}
+.copy-btn:hover {
+    border-color: var(--border2);
+    color: var(--text2);
+}
+
+
+/* FIX 2: resizable chat input
+   Find the existing .chat-input block and change "resize: none" to: */
+.chat-input {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    resize: vertical;          /* was: none */
+    min-height: 60px;
+    outline: none;
+    line-height: 1.6;
+    transition: border-color 0.15s;
+    margin-bottom: 8px;
+}
+
+
+/* FIX 3 & 4: token tags toggle in sidebar — ADD these new rules anywhere */
+.toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.toggle-label {
+    font-size: 11px;
+    color: var(--text2);
+    letter-spacing: 0.04em;
+}
+
+.toggle-btn {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 10px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    letter-spacing: 0.06em;
+    transition: all 0.15s;
+}
+
+.toggle-on {
+    background: var(--badge-bg);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+}
+
+.toggle-off {
+    background: none;
+    border: 1px solid var(--border2);
+    color: var(--text3);
+}
+
+.toggle-off:hover {
+    border-color: var(--text2);
+    color: var(--text2);
+}
