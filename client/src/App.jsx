@@ -8,7 +8,7 @@ const MODELS = [
   { id: "claude-sonnet-4-6",  label: "Claude Sonnet 4.6 (1M ctx)" },
   { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
 ];
-const DEFAULT_MODEL     = MODELS[0].id;
+const DEFAULT_MODEL      = MODELS[0].id;
 const DEFAULT_MAX_TOKENS = 32000;
 
 // ── API helpers ───────────────────────────────────────────────────────────────
@@ -39,6 +39,19 @@ function titleFromMessages(messages) {
   if (!first) return "New conversation";
   const text = typeof first.content === "string" ? first.content : "";
   return text.slice(0, 40) + (text.length > 40 ? "…" : "");
+}
+
+// ── FIX 2: Draft helpers — persist unsent input per conversation ──────────────
+const DRAFT_PREFIX = "draft_";
+function loadDraft(convoId) {
+  try { return localStorage.getItem(DRAFT_PREFIX + convoId) || ""; }
+  catch { return ""; }
+}
+function saveDraft(convoId, text) {
+  try {
+    if (text) localStorage.setItem(DRAFT_PREFIX + convoId, text);
+    else      localStorage.removeItem(DRAFT_PREFIX + convoId);
+  } catch {}
 }
 
 // ── Login Screen ──────────────────────────────────────────────────────────────
@@ -75,8 +88,7 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-// ── Token Counter ─────────────────────────────────────────────────────────────
-// FIX: showTokens prop hides the whole block when false
+// ── Token Counter (message-level tags) ───────────────────────────────────────
 function TokenDisplay({ usage, showTokens }) {
   if (!usage || !showTokens) return null;
   return (
@@ -90,8 +102,6 @@ function TokenDisplay({ usage, showTokens }) {
 }
 
 // ── Message Bubble ────────────────────────────────────────────────────────────
-// FIX: copy btn on both roles, hidden until hover (via CSS class copy-btn-hover)
-// FIX: showTokens threaded through to TokenDisplay
 function Message({ msg, showTokens }) {
   const [copied, setCopied] = useState(false);
   const copy = () => { navigator.clipboard.writeText(msg.content); setCopied(true); setTimeout(() => setCopied(false), 1500); };
@@ -118,7 +128,7 @@ function ConvoItem({ convo, active, onSelect, onDelete, onRename }) {
   const [editVal, setEditVal] = useState(convo.title);
   const inputRef = useRef(null);
 
-  // FIX: coerce updated_at to number before Date() — DB returns it as a string
+  // Coerce updated_at to number — DB returns it as a string
   const ts      = Number(convo.updated_at);
   const dateObj = new Date(ts);
   const date    = isNaN(dateObj.getTime())
@@ -169,7 +179,7 @@ export default function App() {
   const [systemOpen,  setSystemOpen]  = useState(true);
   const [theme,       setTheme]       = useState(() => localStorage.getItem("theme") || "dark");
 
-  // FIX: token tags toggle, persisted to localStorage
+  // Token tags toggle
   const [showTokens, setShowTokens] = useState(() => {
     const saved = localStorage.getItem("show_tokens");
     return saved === null ? true : saved === "true";
@@ -180,18 +190,94 @@ export default function App() {
     return next;
   });
 
-  const bottomRef = useRef(null);
-  const abortRef  = useRef(null);
+  // FIX 1: prompt token counter state
+  const [promptTokens,        setPromptTokens]        = useState(null);
+  const [promptTokensLoading, setPromptTokensLoading] = useState(false);
+  const tokenCountReqRef = useRef(0);
+
+  const bottomRef      = useRef(null);
+  const abortRef       = useRef(null);
+  // FIX 2: track previous activeId so we can save draft before switching
+  const prevActiveIdRef = useRef(null);
+  // FIX 3: keep a ref to msgCache so the token-count effect doesn't need it as a dep
+  const msgCacheRef    = useRef(msgCache);
+  useEffect(() => { msgCacheRef.current = msgCache; }, [msgCache]);
 
   const activeConvo = convos.find((c) => c.id === activeId) || null;
   const messages    = msgCache[activeId] || [];
   const system      = activeConvo?.system || "";
   const model       = activeConvo?.model  || DEFAULT_MODEL;
 
+  // ── Theme ──
   useEffect(() => { document.documentElement.setAttribute("data-theme", theme); localStorage.setItem("theme", theme); }, [theme]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
   const toggleTheme = () => setTheme((t) => t === "dark" ? "light" : "dark");
 
+  // ── FIX 2: save draft on convo switch, restore draft for incoming convo ──────
+  useEffect(() => {
+    const prev = prevActiveIdRef.current;
+    // Save whatever was typed in the previous conversation before leaving
+    if (prev && prev !== activeId) {
+      saveDraft(prev, input);
+    }
+    // Restore the saved draft (or empty string) for the newly-active conversation
+    if (activeId) {
+      setInput(loadDraft(activeId));
+    }
+    prevActiveIdRef.current = activeId;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
+
+  // ── FIX 1 + FIX 3: prompt token counter — debounced, no `messages` dep ──────
+  // Reading messages via msgCacheRef instead of the `messages` variable means
+  // this effect does NOT re-subscribe on every streaming update, which was the
+  // cause of the typing lag in long conversations.
+  useEffect(() => {
+    const trimmed = input.trim();
+
+    if (!activeId || !trimmed || streaming) {
+      setPromptTokens(null);
+      setPromptTokensLoading(false);
+      return;
+    }
+
+    const reqId = ++tokenCountReqRef.current;
+    setPromptTokensLoading(true);
+
+    // 600 ms debounce — rapid typing won't fire a request per keystroke
+    const timer = setTimeout(() => {
+      (async () => {
+        try {
+          const currentMessages = (msgCacheRef.current[activeId] || [])
+            .filter((m) => !m.streaming && m.content);
+
+          const data = await apiFetch("/api/count-tokens", {
+            method: "POST",
+            headers: apiHeaders(token, username),
+            body: JSON.stringify({
+              model,
+              system,
+              messages: [...currentMessages, { role: "user", content: trimmed }],
+            }),
+          });
+
+          if (tokenCountReqRef.current !== reqId) return;
+          setPromptTokens(data.input_tokens);
+        } catch {
+          if (tokenCountReqRef.current !== reqId) return;
+          setPromptTokens(null);
+        } finally {
+          if (tokenCountReqRef.current === reqId) setPromptTokensLoading(false);
+        }
+      })();
+    }, 600);
+
+    return () => clearTimeout(timer);
+    // NOTE: `messages` deliberately omitted — read via ref to avoid lag
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input, activeId, model, system, streaming, token, username]);
+
+  // ── Load conversations on login ──
   useEffect(() => {
     if (!token || !username) return;
     loadConversations();
@@ -207,6 +293,7 @@ export default function App() {
     setLoadingConvos(false);
   };
 
+  // ── Load messages when switching conversations ──
   useEffect(() => {
     if (!activeId || msgCache[activeId]) return;
     loadMessages(activeId);
@@ -220,6 +307,7 @@ export default function App() {
     } catch (err) { console.error("Failed to load messages:", err); }
   };
 
+  // ── Auth ──
   const handleLogin = (t, u) => {
     sessionStorage.setItem("auth_token",   t);
     sessionStorage.setItem("auth_username", u);
@@ -231,6 +319,7 @@ export default function App() {
     setToken(""); setUsername(""); setConvos([]); setActiveId(null); setMsgCache({});
   };
 
+  // ── Conversations ──
   const newChat = async () => {
     const convo = newConvoObj();
     try {
@@ -238,13 +327,15 @@ export default function App() {
       setConvos((prev) => [convo, ...prev]);
       setMsgCache((prev) => ({ ...prev, [convo.id]: [] }));
       setActiveId(convo.id);
-      setInput("");
+      // input is cleared by the activeId effect (no draft for a new convo)
     } catch (err) { console.error("Failed to create conversation:", err); }
   };
 
-  const selectConvo = (id) => { if (streaming) stopStreaming(); setActiveId(id); setInput(""); };
+  // FIX 2: removed setInput("") from selectConvo — handled by the activeId effect
+  const selectConvo = (id) => { if (streaming) stopStreaming(); setActiveId(id); };
 
   const deleteConvo = async (id) => {
+    saveDraft(id, ""); // clean up any draft for the deleted convo
     try {
       await apiFetch(`/api/conversations/${id}`, { method: "DELETE", headers: apiHeaders(token, username) });
       setConvos((prev) => prev.filter((c) => c.id !== id));
@@ -286,10 +377,11 @@ export default function App() {
     await newChat();
   };
 
+  // ── Send message ──
   const sendMessage = useCallback(async () => {
     if (!input.trim() || streaming) return;
 
-    let currentId = activeId;
+    let currentId    = activeId;
     let currentConvo = activeConvo;
 
     if (!currentId) {
@@ -299,13 +391,13 @@ export default function App() {
         setConvos((prev) => [convo, ...prev]);
         setMsgCache((prev) => ({ ...prev, [convo.id]: [] }));
         setActiveId(convo.id);
-        currentId = convo.id;
+        currentId    = convo.id;
         currentConvo = convo;
       } catch (err) { console.error(err); return; }
     }
 
     const currentMessages = msgCache[currentId] || [];
-    const userMsg = { role: "user", content: input.trim() };
+    const userMsg     = { role: "user", content: input.trim() };
     const newMessages = [...currentMessages, userMsg];
 
     setMsgCache((prev) => ({ ...prev, [currentId]: [...newMessages, { role: "assistant", content: "", streaming: true }] }));
@@ -316,7 +408,10 @@ export default function App() {
       apiFetch(`/api/conversations/${currentId}`, { method: "PATCH", headers: apiHeaders(token, username), body: JSON.stringify({ title }) }).catch(console.error);
     }
 
+    // Clear input + draft now that the message is being sent
     setInput("");
+    saveDraft(currentId, "");
+    setPromptTokens(null);
     setStreaming(true);
 
     const controller = new AbortController();
@@ -409,9 +504,9 @@ export default function App() {
           <select value={model} onChange={(e) => updateConvoMeta("model", e.target.value)} className="model-select">
             {MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
           </select>
-          <button className="header-btn theme-btn"           onClick={toggleTheme}       title="toggle theme">{theme === "dark" ? "☀" : "☾"}</button>
-          <button className="header-btn clear-btn"           onClick={clearConversation}>clear</button>
-          <button className="header-btn logout-btn"          onClick={handleLogout}>logout</button>
+          <button className="header-btn theme-btn"  onClick={toggleTheme}       title="toggle theme">{theme === "dark" ? "☀" : "☾"}</button>
+          <button className="header-btn clear-btn"  onClick={clearConversation}>clear</button>
+          <button className="header-btn logout-btn" onClick={handleLogout}>logout</button>
         </div>
       </header>
 
@@ -454,7 +549,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* FIX: token tags toggle in sidebar */}
             <div className="sidebar-section">
               <p className="section-label">display</p>
               <div className="toggle-row">
@@ -490,10 +584,13 @@ export default function App() {
           </div>
 
           <div className="input-area">
-            {/* FIX: resize: vertical via CSS — user can drag to expand */}
             <textarea className="chat-input" placeholder="send a message..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} rows={3} disabled={streaming} />
             <div className="input-actions">
               <span className="input-hint">⌘↵ to send</span>
+              {/* FIX 1: prompt token counter restored */}
+              <span className="token-count" title="estimated input tokens">
+                {promptTokensLoading ? "counting…" : (promptTokens !== null ? `${promptTokens.toLocaleString()} tokens` : "")}
+              </span>
               {streaming
                 ? <button className="stop-btn" onClick={stopStreaming}>◼ stop</button>
                 : <button className="send-btn" onClick={sendMessage} disabled={!input.trim()}>send ↵</button>}
