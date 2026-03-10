@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "./app.css";
@@ -89,7 +89,8 @@ function LoginScreen({ onLogin }) {
 }
 
 // ── Token Counter (message-level tags) ───────────────────────────────────────
-function TokenDisplay({ usage, showTokens }) {
+// memo: never re-renders unless usage or showTokens actually change
+const TokenDisplay = memo(function TokenDisplay({ usage, showTokens }) {
   if (!usage || !showTokens) return null;
   return (
     <div className="token-display">
@@ -99,10 +100,12 @@ function TokenDisplay({ usage, showTokens }) {
       {usage.cache_creation_input_tokens > 0 && <span className="token-chip cache-write">📝 {usage.cache_creation_input_tokens.toLocaleString()} written</span>}
     </div>
   );
-}
+});
 
 // ── Message Bubble ────────────────────────────────────────────────────────────
-function Message({ msg, showTokens }) {
+// memo: skips re-render on every keystroke — only re-renders when msg or
+// showTokens actually change (i.e. during streaming or when toggle flipped)
+const Message = memo(function Message({ msg, showTokens }) {
   const [copied, setCopied] = useState(false);
   const copy = () => { navigator.clipboard.writeText(msg.content); setCopied(true); setTimeout(() => setCopied(false), 1500); };
   return (
@@ -119,7 +122,38 @@ function Message({ msg, showTokens }) {
       {msg.usage && <TokenDisplay usage={msg.usage} showTokens={showTokens} />}
     </div>
   );
-}
+});
+
+// ── Chat Input ────────────────────────────────────────────────────────────────
+// Isolated into its own memo component so that typing only re-renders this
+// small subtree — the message list above is completely unaffected by input state.
+const ChatInput = memo(function ChatInput({
+  input, onInput, onKeyDown, streaming, onStop, onSend,
+  promptTokens, promptTokensLoading,
+}) {
+  return (
+    <div className="input-area">
+      <textarea
+        className="chat-input"
+        placeholder="send a message..."
+        value={input}
+        onChange={(e) => onInput(e.target.value)}
+        onKeyDown={onKeyDown}
+        rows={3}
+        disabled={streaming}
+      />
+      <div className="input-actions">
+        <span className="input-hint">⌘↵ to send</span>
+        <span className="token-count" title="estimated input tokens">
+          {promptTokensLoading ? "counting…" : (promptTokens !== null ? `${promptTokens.toLocaleString()} tokens` : "")}
+        </span>
+        {streaming
+          ? <button className="stop-btn" onClick={onStop}>◼ stop</button>
+          : <button className="send-btn" onClick={onSend} disabled={!input.trim()}>send ↵</button>}
+      </div>
+    </div>
+  );
+});
 
 // ── Conversation List Item ────────────────────────────────────────────────────
 function ConvoItem({ convo, active, onSelect, onDelete, onRename }) {
@@ -488,7 +522,9 @@ export default function App() {
     });
   };
 
-  const handleKeyDown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendMessage(); } };
+  // Both handlers are stable so ChatInput's memo comparison always passes
+  const handleKeyDown = useCallback((e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendMessage(); } }, [sendMessage]);
+  const handleInput   = useCallback((val) => setInput(val), []);
 
   if (!token || !username) return <LoginScreen onLogin={handleLogin} />;
 
@@ -583,19 +619,16 @@ export default function App() {
             <div ref={bottomRef} />
           </div>
 
-          <div className="input-area">
-            <textarea className="chat-input" placeholder="send a message..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} rows={3} disabled={streaming} />
-            <div className="input-actions">
-              <span className="input-hint">⌘↵ to send</span>
-              {/* FIX 1: prompt token counter restored */}
-              <span className="token-count" title="estimated input tokens">
-                {promptTokensLoading ? "counting…" : (promptTokens !== null ? `${promptTokens.toLocaleString()} tokens` : "")}
-              </span>
-              {streaming
-                ? <button className="stop-btn" onClick={stopStreaming}>◼ stop</button>
-                : <button className="send-btn" onClick={sendMessage} disabled={!input.trim()}>send ↵</button>}
-            </div>
-          </div>
+          <ChatInput
+            input={input}
+            onInput={handleInput}
+            onKeyDown={handleKeyDown}
+            streaming={streaming}
+            onStop={stopStreaming}
+            onSend={sendMessage}
+            promptTokens={promptTokens}
+            promptTokensLoading={promptTokensLoading}
+          />
         </main>
       </div>
     </div>
