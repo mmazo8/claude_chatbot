@@ -568,7 +568,7 @@ export default function App() {
               go to billing →
             </a>
             <button className="credit-popup-retry" onClick={() => { setShowCreditPopup(false); setCreditError(false); setCreditPopupDismissed(false); }}>
-              ✓ i've topped up, close
+              credits filled, close popup.
             </button>
             <button className="credit-popup-dismiss" onClick={() => { setShowCreditPopup(false); setCreditPopupDismissed(true); }}>
               dismiss
