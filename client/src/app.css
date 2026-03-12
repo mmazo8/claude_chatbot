@@ -1210,20 +1210,23 @@ body,
 
 /* ── Credit warning bar (below chat input) ──────────────────────────────────── */
 .credit-warning-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
     padding: 6px 16px;
-    background: rgba(255, 160, 0, 0.08);
-    border-top: 1px solid rgba(255, 160, 0, 0.25);
-    color: #c87a00;
+    background: rgba(255, 80, 80, 0.08);
+    border-top: 1px solid rgba(255, 80, 80, 0.25);
+    color: #c84040;
     font-family: var(--font-mono);
     font-size: 11px;
     letter-spacing: 0.04em;
-    text-align: center;
 }
 
 [data-theme="light"] .credit-warning-bar {
-    background: rgba(200, 120, 0, 0.07);
-    border-color: rgba(200, 120, 0, 0.3);
-    color: #a06000;
+    background: rgba(180, 40, 40, 0.07);
+    border-color: rgba(180, 40, 40, 0.3);
+    color: #a03030;
 }
 
 .credit-warning-bar a {
@@ -1233,9 +1236,20 @@ body,
     text-underline-offset: 2px;
 }
 
-.credit-warning-bar a:hover {
-    opacity: 0.75;
+.credit-warning-bar a:hover { opacity: 0.75; }
+
+.credit-warning-clear {
+    background: none;
+    border: none;
+    color: inherit;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    cursor: pointer;
+    opacity: 0.6;
+    padding: 0 2px;
+    line-height: 1;
 }
+.credit-warning-clear:hover { opacity: 1; }
 
 /* ── Low-credit popup overlay ────────────────────────────────────────────────── */
 .credit-popup-overlay {
@@ -1256,10 +1270,10 @@ body,
 
 .credit-popup {
     background: var(--bg2);
-    border: 1px solid rgba(255, 160, 0, 0.4);
+    border: 1px solid rgba(255, 80, 80, 0.4);
     border-radius: var(--radius);
     padding: 32px 28px 24px;
-    max-width: 340px;
+    max-width: 360px;
     width: 90%;
     display: flex;
     flex-direction: column;
@@ -1277,7 +1291,7 @@ body,
 .credit-popup-icon {
     font-size: 28px;
     line-height: 1;
-    color: #c87a00;
+    color: #c84040;
     margin-bottom: 4px;
 }
 
@@ -1298,9 +1312,7 @@ body,
     margin: 0;
 }
 
-.credit-popup-body strong {
-    color: #c87a00;
-}
+.credit-popup-body strong { color: #c84040; }
 
 .credit-popup-link {
     display: inline-block;
@@ -1315,11 +1327,21 @@ body,
     border-radius: var(--radius);
     transition: all 0.15s;
 }
+.credit-popup-link:hover { background: var(--accent); color: var(--bg); }
 
-.credit-popup-link:hover {
-    background: var(--accent);
-    color: var(--bg);
+.credit-popup-retry {
+    background: none;
+    border: 1px solid #5a8a5a;
+    color: var(--green, #5a8a5a);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    padding: 5px 14px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.15s;
 }
+.credit-popup-retry:hover { background: #5a8a5a22; }
 
 .credit-popup-dismiss {
     background: none;
@@ -1331,11 +1353,6 @@ body,
     padding: 4px 12px;
     border-radius: var(--radius);
     cursor: pointer;
-    margin-top: 2px;
     transition: all 0.15s;
 }
-
-.credit-popup-dismiss:hover {
-    border-color: var(--text2);
-    color: var(--text2);
-}
+.credit-popup-dismiss:hover { border-color: var(--text2); color: var(--text2); }

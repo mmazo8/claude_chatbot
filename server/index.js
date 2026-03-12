@@ -82,54 +82,6 @@ app.post("/api/auth", (req, res) => {
   }
 });
 
-// ── NEW: Billing / credit balance endpoint ────────────────────────────────────
-// Anthropic exposes remaining credit via the Usage API (beta). We proxy it here
-// so the API key never touches the browser.
-app.get("/api/billing", async (req, res) => {
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/organizations/me/usage/credits", {
-      headers: {
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": "billing-2025-01-01",
-      },
-    });
-
-    if (!response.ok) {
-      // Fallback: try the simpler account balance endpoint (older API)
-      const fallback = await fetch("https://api.anthropic.com/v1/organizations/me", {
-        headers: {
-          "x-api-key": process.env.ANTHROPIC_API_KEY,
-          "anthropic-version": "2023-06-01",
-        },
-      });
-      if (!fallback.ok) {
-        return res.status(200).json({ balance: null, unavailable: true });
-      }
-      const org = await fallback.json();
-      // balance_dollars may be in the org object depending on account type
-      const balance = org.billing?.credit_balance_usd ?? org.credit_balance_usd ?? null;
-      return res.json({ balance });
-    }
-
-    const data = await response.json();
-    // Response shape: { remaining_credits: <cents int> } or { credit_balance_usd: <float> }
-    let balance = null;
-    if (typeof data.remaining_credits === "number") {
-      balance = data.remaining_credits / 100; // cents → dollars
-    } else if (typeof data.credit_balance_usd === "number") {
-      balance = data.credit_balance_usd;
-    } else if (typeof data.balance === "number") {
-      balance = data.balance;
-    }
-    res.json({ balance });
-  } catch (err) {
-    console.error("Billing check error:", err);
-    // Non-fatal — the frontend handles null gracefully
-    res.json({ balance: null, error: err.message });
-  }
-});
-
 // ── Conversations CRUD ────────────────────────────────────────────────────────
 app.get("/api/conversations", async (req, res) => {
   const username = req.headers["x-username"];
