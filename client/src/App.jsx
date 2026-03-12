@@ -10,6 +10,7 @@ const MODELS = [
 ];
 const DEFAULT_MODEL      = MODELS[0].id;
 const DEFAULT_MAX_TOKENS = 32000;
+const LOW_CREDIT_THRESHOLD = 10.00; // dollars — show warning below this balance
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 function apiHeaders(token, username) {
@@ -229,6 +230,11 @@ export default function App() {
   const [promptTokensLoading, setPromptTokensLoading] = useState(false);
   const tokenCountReqRef = useRef(0);
 
+  // ── Credit balance monitoring ─────────────────────────────────────────────
+  const [creditBalance,        setCreditBalance]        = useState(null);
+  const [showCreditPopup,    setShowCreditPopup]    = useState(false);
+  const [creditPopupDismissed, setCreditPopupDismissed] = useState(false);
+
   const bottomRef      = useRef(null);
   const abortRef       = useRef(null);
   // FIX 2: track previous activeId so we can save draft before switching
@@ -246,6 +252,25 @@ export default function App() {
   useEffect(() => { document.documentElement.setAttribute("data-theme", theme); localStorage.setItem("theme", theme); }, [theme]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
   const toggleTheme = () => setTheme((t) => t === "dark" ? "light" : "dark");
+
+  // ── Credit balance polling ────────────────────────────────────────────────
+  const fetchCreditBalance = useCallback(async () => {
+    if (!token) return;
+    try {
+      const data = await apiFetch("/api/billing", { headers: apiHeaders(token, username) });
+      const balance = data.balance ?? null;
+      setCreditBalance(balance);
+      if (balance !== null && balance <= LOW_CREDIT_THRESHOLD && !creditPopupDismissed) {
+        setShowCreditPopup(true);
+      }
+    } catch { /* silently ignore */ }
+  }, [token, username, creditPopupDismissed]);
+
+  useEffect(() => {
+    fetchCreditBalance();
+    const interval = setInterval(fetchCreditBalance, 5 * 60 * 1000); // every 5 minutes
+    return () => clearInterval(interval);
+  }, [fetchCreditBalance]);
 
   // ── FIX 2: save draft on convo switch, restore draft for incoming convo ──────
   useEffect(() => {
@@ -497,7 +522,24 @@ export default function App() {
               } catch (e) { console.error("Failed to save messages:", e); }
             }
             if (parsed.type === "error") {
-              setMsgCache((prev) => { const msgs = [...(prev[currentId] || [])]; msgs[msgs.length - 1] = { role: "assistant", content: `⚠️ Error: ${parsed.error}`, streaming: false }; return { ...prev, [currentId]: msgs }; });
+              const isCreditError = parsed.error_type === "credit_balance_too_low" ||
+                (parsed.error || "").toLowerCase().includes("credit");
+              if (isCreditError) {
+                // Remove the failed assistant placeholder and restore user's message
+                setMsgCache((prev) => {
+                  const msgs = [...(prev[currentId] || [])];
+                  // Drop the empty assistant placeholder
+                  msgs.pop();
+                  return { ...prev, [currentId]: msgs };
+                });
+                setInput(userMsg.content);
+                saveDraft(currentId, userMsg.content);
+                setCreditPopupDismissed(false);
+                setShowCreditPopup(true);
+                fetchCreditBalance();
+              } else {
+                setMsgCache((prev) => { const msgs = [...(prev[currentId] || [])]; msgs[msgs.length - 1] = { role: "assistant", content: `⚠️ Error: ${parsed.error}`, streaming: false }; return { ...prev, [currentId]: msgs }; });
+              }
             }
           } catch { /* skip */ }
         }
@@ -508,7 +550,7 @@ export default function App() {
       }
     }
     setStreaming(false);
-  }, [input, msgCache, activeId, activeConvo, streaming, token, username, temperature, maxTokens]);
+  }, [input, msgCache, activeId, activeConvo, streaming, token, username, temperature, maxTokens, fetchCreditBalance, setCreditPopupDismissed, setShowCreditPopup]);
 
   const stopStreaming = () => {
     abortRef.current?.abort();
@@ -530,6 +572,26 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* Low-credit popup */}
+      {showCreditPopup && (
+        <div className="credit-popup-overlay" onClick={() => setShowCreditPopup(false)}>
+          <div className="credit-popup" onClick={(e) => e.stopPropagation()}>
+            <div className="credit-popup-icon">⚠</div>
+            <p className="credit-popup-title">low api credit</p>
+            <p className="credit-popup-body">
+              your anthropic credit balance is{" "}
+              <strong>${creditBalance !== null ? creditBalance.toFixed(2) : "< $10"}</strong>.
+              top it up to continue chatting.
+            </p>
+            <a className="credit-popup-link" href="https://console.anthropic.com/settings/billing" target="_blank" rel="noreferrer">
+              go to billing →
+            </a>
+            <button className="credit-popup-dismiss" onClick={() => { setShowCreditPopup(false); setCreditPopupDismissed(true); }}>
+              dismiss
+            </button>
+          </div>
+        </div>
+      )}
       <header className="header">
         <div className="header-left">
           <button className="sidebar-toggle" onClick={() => setSidebarOpen((v) => !v)}>{sidebarOpen ? "◀" : "▶"}</button>
@@ -629,6 +691,12 @@ export default function App() {
             promptTokens={promptTokens}
             promptTokensLoading={promptTokensLoading}
           />
+          {creditBalance !== null && creditBalance <= LOW_CREDIT_THRESHOLD && (
+            <div className="credit-warning-bar">
+              ⚠ api credit low — ${creditBalance.toFixed(2)} remaining.{" "}
+              <a href="https://console.anthropic.com/settings/billing" target="_blank" rel="noreferrer">top up →</a>
+            </div>
+          )}
         </main>
       </div>
     </div>

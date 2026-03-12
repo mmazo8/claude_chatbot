@@ -1207,3 +1207,135 @@ body,
     border-color: var(--text2);
     color: var(--text2);
 }
+
+/* ── Credit warning bar (below chat input) ──────────────────────────────────── */
+.credit-warning-bar {
+    padding: 6px 16px;
+    background: rgba(255, 160, 0, 0.08);
+    border-top: 1px solid rgba(255, 160, 0, 0.25);
+    color: #c87a00;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-align: center;
+}
+
+[data-theme="light"] .credit-warning-bar {
+    background: rgba(200, 120, 0, 0.07);
+    border-color: rgba(200, 120, 0, 0.3);
+    color: #a06000;
+}
+
+.credit-warning-bar a {
+    color: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.credit-warning-bar a:hover {
+    opacity: 0.75;
+}
+
+/* ── Low-credit popup overlay ────────────────────────────────────────────────── */
+.credit-popup-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.credit-popup {
+    background: var(--bg2);
+    border: 1px solid rgba(255, 160, 0, 0.4);
+    border-radius: var(--radius);
+    padding: 32px 28px 24px;
+    max-width: 340px;
+    width: 90%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    animation: popIn 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes popIn {
+    from { opacity: 0; transform: scale(0.88); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+.credit-popup-icon {
+    font-size: 28px;
+    line-height: 1;
+    color: #c87a00;
+    margin-bottom: 4px;
+}
+
+.credit-popup-title {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text);
+    margin: 0;
+}
+
+.credit-popup-body {
+    font-size: 13px;
+    color: var(--text2);
+    text-align: center;
+    line-height: 1.6;
+    margin: 0;
+}
+
+.credit-popup-body strong {
+    color: #c87a00;
+}
+
+.credit-popup-link {
+    display: inline-block;
+    margin-top: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+    text-decoration: none;
+    border: 1px solid var(--accent);
+    padding: 5px 14px;
+    border-radius: var(--radius);
+    transition: all 0.15s;
+}
+
+.credit-popup-link:hover {
+    background: var(--accent);
+    color: var(--bg);
+}
+
+.credit-popup-dismiss {
+    background: none;
+    border: 1px solid var(--border2);
+    color: var(--text3);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    padding: 4px 12px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    margin-top: 2px;
+    transition: all 0.15s;
+}
+
+.credit-popup-dismiss:hover {
+    border-color: var(--text2);
+    color: var(--text2);
+}
