@@ -209,8 +209,9 @@ export default function App() {
   const [temperature, setTemperature] = useState(1);
   const [maxTokens,   setMaxTokens]   = useState(DEFAULT_MAX_TOKENS);
   const [streaming,   setStreaming]   = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [systemOpen,  setSystemOpen]  = useState(true);
+  const [sidebarOpen,   setSidebarOpen]   = useState(true);
+  const [systemOpen,    setSystemOpen]    = useState(true);
+  const [convoSortAsc,  setConvoSortAsc]  = useState(false); // false = newest first
   const [theme,       setTheme]       = useState(() => localStorage.getItem("theme") || "dark");
 
   // Token tags toggle
@@ -568,7 +569,7 @@ export default function App() {
               go to billing →
             </a>
             <button className="credit-popup-retry" onClick={() => { setShowCreditPopup(false); setCreditError(false); setCreditPopupDismissed(false); }}>
-              credits filled, close popup.
+              ✓ i've topped up, close
             </button>
             <button className="credit-popup-dismiss" onClick={() => { setShowCreditPopup(false); setCreditPopupDismissed(true); }}>
               dismiss
@@ -598,14 +599,24 @@ export default function App() {
             <div className="sidebar-section convo-section">
               <div className="convo-section-header">
                 <p className="section-label" style={{marginBottom: 0}}>conversations</p>
-                <button className="new-chat-sidebar-btn" onClick={newChat}>+ new</button>
+                <div style={{display:"flex", gap:"6px"}}>
+                  <button className="new-chat-sidebar-btn" onClick={() => setConvoSortAsc((v) => !v)} title="toggle sort order">
+                    {convoSortAsc ? "oldest ↑" : "newest ↓"}
+                  </button>
+                  <button className="new-chat-sidebar-btn" onClick={newChat}>+ new</button>
+                </div>
               </div>
               {loadingConvos && <p className="convo-empty">loading...</p>}
               {!loadingConvos && convos.length === 0 && <p className="convo-empty">no conversations yet</p>}
               <div className="convo-list">
-                {convos.map((c) => (
-                  <ConvoItem key={c.id} convo={c} active={c.id === activeId} onSelect={selectConvo} onDelete={deleteConvo} onRename={renameConvo} />
-                ))}
+                {[...convos]
+                  .sort((a, b) => convoSortAsc
+                    ? Number(a.updated_at) - Number(b.updated_at)
+                    : Number(b.updated_at) - Number(a.updated_at))
+                  .map((c) => (
+                    <ConvoItem key={c.id} convo={c} active={c.id === activeId} onSelect={selectConvo} onDelete={deleteConvo} onRename={renameConvo} />
+                  ))
+                }
               </div>
             </div>
 
