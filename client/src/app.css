@@ -1362,31 +1362,31 @@ body,
 }
 .credit-popup-dismiss:hover { border-color: var(--text2); color: var(--text2); }
 
-/* ── Compaction Divider ───────────────────────────────────────────────────────
-   Add this block anywhere in your app.css
-   ─────────────────────────────────────────────────────────────────────────── */
-
+/* ── Compaction Divider ──────────────────────────────────────────────────────── */
 .compaction-divider {
     display: flex;
     align-items: center;
     gap: 10px;
     width: 100%;
     max-width: 860px;
-    align-self: center;
-    margin: 4px 0;
+    align-self: flex-start;
+    margin: 8px 0;
+    padding: 0;
+    min-height: 20px;
 }
 
 .compaction-line {
     flex: 1;
     height: 1px;
-    background: var(--border2);
+    background: #333;
+    display: block;
 }
 
 .compaction-label {
-    font-family: var(--font-mono);
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 10px;
     letter-spacing: 0.08em;
-    color: var(--text3);
+    color: #666;
     white-space: nowrap;
-    padding: 0 4px;
+    flex-shrink: 0;
 }
