@@ -1361,3 +1361,32 @@ body,
     transition: all 0.15s;
 }
 .credit-popup-dismiss:hover { border-color: var(--text2); color: var(--text2); }
+
+/* ── Compaction Divider ───────────────────────────────────────────────────────
+   Add this block anywhere in your app.css
+   ─────────────────────────────────────────────────────────────────────────── */
+
+.compaction-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    max-width: 860px;
+    align-self: center;
+    margin: 4px 0;
+}
+
+.compaction-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border2);
+}
+
+.compaction-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--text3);
+    white-space: nowrap;
+    padding: 0 4px;
+}
