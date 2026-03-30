@@ -91,28 +91,32 @@ function LoginScreen({ onLogin }) {
 function TokenDisplay({ usage }) {
   if (!usage) return null;
 
-  // If iterations exist (compaction happened), sum across all iterations for true totals
-  let totalInput = usage.input_tokens || 0;
-  let totalOutput = usage.output_tokens || 0;
-  let totalCached = usage.cache_read_input_tokens || 0;
+  // When compaction happens, usage.iterations has the real per-step breakdown.
+  // Sum across all iterations for accurate totals; fall back to top-level fields otherwise.
+  let input_tokens = usage.input_tokens || 0;
+  let output_tokens = usage.output_tokens || 0;
+  let cache_read = usage.cache_read_input_tokens || 0;
+  let cache_write = usage.cache_creation_input_tokens || 0;
 
   if (usage.iterations && usage.iterations.length > 0) {
-    totalInput = 0;
-    totalOutput = 0;
-    totalCached = 0;
+    input_tokens = 0;
+    output_tokens = 0;
+    cache_read = 0;
+    cache_write = 0;
     for (const iter of usage.iterations) {
-      totalInput += iter.input_tokens || 0;
-      totalOutput += iter.output_tokens || 0;
-      totalCached += iter.cache_read_input_tokens || 0;
+      input_tokens += iter.input_tokens || 0;
+      output_tokens += iter.output_tokens || 0;
+      cache_read += iter.cache_read_input_tokens || 0;
+      cache_write += iter.cache_creation_input_tokens || 0;
     }
   }
 
-  const totalUsed = totalInput + totalOutput;
-
   return (
     <div className="token-display">
-      {totalUsed > 0 && <span className="token-chip input">{totalUsed.toLocaleString()} tokens used</span>}
-      {totalCached > 0 && <span className="token-chip cache-read">⚡ {totalCached.toLocaleString()} cached</span>}
+      {input_tokens  > 0 && <span className="token-chip input">↑ {input_tokens.toLocaleString()}</span>}
+      {output_tokens > 0 && <span className="token-chip output">↓ {output_tokens.toLocaleString()}</span>}
+      {cache_read    > 0 && <span className="token-chip cache-read">⚡ {cache_read.toLocaleString()} cached</span>}
+      {cache_write   > 0 && <span className="token-chip cache-write">📝 {cache_write.toLocaleString()} written</span>}
     </div>
   );
 }
@@ -185,7 +189,7 @@ function ConvoItem({ convo, active, onSelect, onDelete, onRename }) {
   const [editing, setEditing] = useState(false);
   const [editVal, setEditVal] = useState(convo.title);
   const inputRef = useRef(null);
-  const date = new Date(convo.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const date = new Date(Number(convo.updated_at)).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
   const startEdit = (e) => { e.stopPropagation(); setEditVal(convo.title); setEditing(true); setTimeout(() => inputRef.current?.focus(), 0); };
   const commitEdit = () => { if (editVal.trim()) onRename(convo.id, editVal.trim()); setEditing(false); };
