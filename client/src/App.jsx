@@ -416,19 +416,19 @@ export default function App() {
   );
 
   const contextUsageTokens = useMemo(() => {
-  const lastAssistant = [...messages]
-    .reverse()
-    .find((m) => m.role === "assistant" && m.usage);
+  let maxSeen = 0;
 
-  if (!lastAssistant) return 0;
+  for (const msg of messages) {
+    const usage = msg?.usage;
+    if (!usage) continue;
 
-  const usage = lastAssistant.usage;
+    const cacheWritten = usage.cache_creation_input_tokens || 0;
+    const promptCount = usage.input_tokens || 0;
 
-  return (
-    usage.cache_creation_input_tokens ||
-    usage.input_tokens ||
-    0
-  );
+    maxSeen = Math.max(maxSeen, cacheWritten, promptCount);
+  }
+
+  return maxSeen;
 }, [messages]);
 
 const contextUsagePercent = useMemo(() => {
