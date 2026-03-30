@@ -14,7 +14,7 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const CLIENT_DIST = path.resolve(__dirname, "../client/dist");
 
-const COMPACTION_TRIGGER_TOKENS = 700000;
+const COMPACTION_TRIGGER_TOKENS = 300000;
 
 // ── Database setup ────────────────────────────────────────────────────────────
 const pool = new pg.Pool({
