@@ -436,7 +436,7 @@ export default function App() {
   }, [contextUsageTokens]);
 
   const LARGE_CONVO_TOKEN_THRESHOLD = 800000;
-  const LARGE_CONVO_MESSAGE_THRESHOLD = 400;
+  const LARGE_CONVO_MESSAGE_THRESHOLD = 5000;
 
   const COMPACTION_START_THRESHOLD = 700000;
   const TOKEN_WARNING_THRESHOLD = 850000;
