@@ -17,7 +17,9 @@ const CLIENT_DIST = path.resolve(__dirname, "../client/dist");
 // ── Database setup ────────────────────────────────────────────────────────────
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes("railway") ? { rejectUnauthorized: false } : false,
+  ssl: process.env.DATABASE_URL?.includes("railway")
+    ? { rejectUnauthorized: false }
+    : false,
 });
 
 async function initDB() {
@@ -45,6 +47,7 @@ async function initDB() {
     CREATE INDEX IF NOT EXISTS idx_conversations_username ON conversations(username);
     CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
   `);
+
   console.log("Database initialized");
 }
 
@@ -53,7 +56,53 @@ console.log("PORT:", PORT);
 console.log("CLIENT_DIST:", CLIENT_DIST);
 
 app.use(express.json({ limit: "10mb" }));
-app.use(cors({ origin: process.env.NODE_ENV === "production" ? false : "http://localhost:5173" }));
+app.use(
+  cors({
+    origin:
+      process.env.NODE_ENV === "production" ? false : "http://localhost:5173",
+  })
+);
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function sanitizeContent(content) {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  const cleaned = content
+    .map((block) => {
+      if (!block || typeof block !== "object") return null;
+
+      if (block.type === "text") {
+        return isNonEmptyString(block.text)
+          ? { type: "text", text: block.text }
+          : null;
+      }
+
+      if (block.type === "compaction") {
+        return isNonEmptyString(block.content)
+          ? { type: "compaction", content: block.content }
+          : null;
+      }
+
+      return null;
+    })
+    .filter(Boolean);
+
+  if (cleaned.length === 1 && cleaned[0].type === "text") {
+    return cleaned[0].text;
+  }
+
+  return cleaned;
+}
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get("/health", (req, res) => res.json({ ok: true }));
@@ -65,19 +114,31 @@ app.use(express.static(CLIENT_DIST));
 app.use((req, res, next) => {
   if (!req.path.startsWith("/api")) return next();
   if (req.path === "/api/auth") return next();
+
   const token = req.headers["x-auth-token"];
   if (!token || token !== process.env.APP_PASSWORD) {
     return res.status(401).json({ error: "Unauthorized" });
   }
+
   next();
 });
 
 // ── Auth endpoint ─────────────────────────────────────────────────────────────
 app.post("/api/auth", (req, res) => {
   const { password, username } = req.body;
-  if (!username?.trim()) return res.status(400).json({ success: false, error: "Username required" });
+
+  if (!username?.trim()) {
+    return res
+      .status(400)
+      .json({ success: false, error: "Username required" });
+  }
+
   if (password === process.env.APP_PASSWORD) {
-    res.json({ success: true, token: process.env.APP_PASSWORD, username: username.trim().toLowerCase() });
+    res.json({
+      success: true,
+      token: process.env.APP_PASSWORD,
+      username: username.trim().toLowerCase(),
+    });
   } else {
     res.status(401).json({ success: false, error: "Invalid password" });
   }
@@ -89,6 +150,7 @@ app.post("/api/auth", (req, res) => {
 app.get("/api/conversations", async (req, res) => {
   const username = req.headers["x-username"];
   if (!username) return res.status(400).json({ error: "Username required" });
+
   try {
     const result = await pool.query(
       "SELECT id, title, model, system, created_at, updated_at FROM conversations WHERE username = $1 ORDER BY updated_at DESC",
@@ -105,25 +167,35 @@ app.get("/api/conversations", async (req, res) => {
 app.get("/api/conversations/:id", async (req, res) => {
   const username = req.headers["x-username"];
   if (!username) return res.status(400).json({ error: "Username required" });
+
   try {
     const convo = await pool.query(
       "SELECT * FROM conversations WHERE id = $1 AND username = $2",
       [req.params.id, username]
     );
-    if (convo.rows.length === 0) return res.status(404).json({ error: "Not found" });
+
+    if (convo.rows.length === 0) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
     const messages = await pool.query(
       "SELECT role, content, usage FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC",
       [req.params.id]
     );
-    // Parse content back: if it's a JSON array string, restore the array
+
     const parsed = messages.rows.map((m) => {
       let content = m.content;
+
       try {
-        const p = JSON.parse(content);
-        if (Array.isArray(p)) content = p;
-      } catch { /* keep as string */ }
+        const parsedJson = JSON.parse(content);
+        content = sanitizeContent(parsedJson);
+      } catch {
+        content = sanitizeContent(content);
+      }
+
       return { role: m.role, content, usage: m.usage };
     });
+
     res.json({ ...convo.rows[0], messages: parsed });
   } catch (err) {
     console.error(err);
@@ -135,7 +207,9 @@ app.get("/api/conversations/:id", async (req, res) => {
 app.post("/api/conversations", async (req, res) => {
   const username = req.headers["x-username"];
   if (!username) return res.status(400).json({ error: "Username required" });
+
   const { id, title, model, system, created_at, updated_at } = req.body;
+
   try {
     await pool.query(
       "INSERT INTO conversations (id, username, title, model, system, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",
@@ -152,8 +226,10 @@ app.post("/api/conversations", async (req, res) => {
 app.patch("/api/conversations/:id", async (req, res) => {
   const username = req.headers["x-username"];
   if (!username) return res.status(400).json({ error: "Username required" });
+
   const { title, model, system } = req.body;
   const now = Date.now();
+
   try {
     await pool.query(
       `UPDATE conversations SET
@@ -175,8 +251,12 @@ app.patch("/api/conversations/:id", async (req, res) => {
 app.delete("/api/conversations/:id", async (req, res) => {
   const username = req.headers["x-username"];
   if (!username) return res.status(400).json({ error: "Username required" });
+
   try {
-    await pool.query("DELETE FROM conversations WHERE id = $1 AND username = $2", [req.params.id, username]);
+    await pool.query(
+      "DELETE FROM conversations WHERE id = $1 AND username = $2",
+      [req.params.id, username]
+    );
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -188,17 +268,27 @@ app.delete("/api/conversations/:id", async (req, res) => {
 app.post("/api/conversations/:id/messages", async (req, res) => {
   const username = req.headers["x-username"];
   if (!username) return res.status(400).json({ error: "Username required" });
+
   const { role, content, usage, created_at } = req.body;
   const now = created_at || Date.now();
-  // Store content: if it's an array (has compaction blocks), serialize as JSON
-  const contentStr = typeof content === "string" ? content : JSON.stringify(content);
+
+  const cleanedContent = sanitizeContent(content);
+  const contentStr =
+    typeof cleanedContent === "string"
+      ? cleanedContent
+      : JSON.stringify(cleanedContent);
+
   try {
     await pool.query(
       "INSERT INTO messages (conversation_id, username, role, content, usage, created_at) VALUES ($1,$2,$3,$4,$5,$6)",
       [req.params.id, username, role, contentStr, usage ? JSON.stringify(usage) : null, now]
     );
-    // Update conversation updated_at
-    await pool.query("UPDATE conversations SET updated_at = $1 WHERE id = $2", [now, req.params.id]);
+
+    await pool.query(
+      "UPDATE conversations SET updated_at = $1 WHERE id = $2",
+      [now, req.params.id]
+    );
+
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -206,74 +296,104 @@ app.post("/api/conversations/:id/messages", async (req, res) => {
   }
 });
 
-function buildAnthropicRequestBody({ messages, system, model, temperature, max_tokens }) {
+function buildAnthropicRequestBody({
+  messages,
+  system,
+  model,
+  temperature,
+  max_tokens,
+}) {
   const cleanMessages = (messages || [])
-    .filter((msg) => !msg.streaming && msg.content)
     .map((msg, i, arr) => {
+      const cleanedContent = sanitizeContent(msg.content);
       const isLastUser = msg.role === "user" && i === arr.length - 1;
 
-      // If content is already an array (contains compaction blocks), preserve it
-      if (Array.isArray(msg.content)) {
-        // For assistant messages with compaction blocks, pass through as-is
-        // but add cache_control to compaction blocks for caching
+      if (
+        cleanedContent === "" ||
+        (Array.isArray(cleanedContent) && cleanedContent.length === 0)
+      ) {
+        return null;
+      }
+
+      if (Array.isArray(cleanedContent)) {
         if (msg.role === "assistant") {
-          const blocks = msg.content.map((block) => {
+          const blocks = cleanedContent.map((block) => {
             if (block.type === "compaction") {
               return { ...block, cache_control: { type: "ephemeral" } };
             }
             return block;
           });
+
           return { role: msg.role, content: blocks };
         }
-        // For user messages that are arrays, extract text
-        const text = msg.content.map((b) => b.text || "").join("");
+
+        const text = cleanedContent
+          .filter((b) => b.type === "text")
+          .map((b) => b.text || "")
+          .join("");
+
+        if (!text.trim()) return null;
+
         if (isLastUser) {
           return {
             role: "user",
-            content: [{ type: "text", text, cache_control: { type: "ephemeral" } }],
+            content: [
+              {
+                type: "text",
+                text,
+                cache_control: { type: "ephemeral" },
+              },
+            ],
           };
         }
+
         return { role: msg.role, content: text };
       }
 
-      const text =
-        typeof msg.content === "string"
-          ? msg.content
-          : "";
+      const text = typeof cleanedContent === "string" ? cleanedContent : "";
+      if (!text.trim()) return null;
 
-      // Keep your caching strategy: only the *latest user turn* gets an ephemeral cache breakpoint.
       if (isLastUser) {
         return {
           role: "user",
-          content: [{ type: "text", text, cache_control: { type: "ephemeral" } }],
+          content: [
+            {
+              type: "text",
+              text,
+              cache_control: { type: "ephemeral" },
+            },
+          ],
         };
       }
+
       return { role: msg.role, content: text };
-    });
+    })
+    .filter(Boolean);
 
   const requestBody = {
     model,
     messages: cleanMessages,
   };
 
-  // Useful for message creation (chat). Safe to omit for count_tokens.
   if (typeof temperature === "number") requestBody.temperature = temperature;
   if (typeof max_tokens === "number") requestBody.max_tokens = max_tokens;
 
-  // System prompt must be top-level (no "system" role in Messages API)
   if (system && system.trim()) {
     requestBody.system = [
-      { type: "text", text: system, cache_control: { type: "ephemeral" } },
+      {
+        type: "text",
+        text: system,
+        cache_control: { type: "ephemeral" },
+      },
     ];
   }
 
-  // Enable auto-compaction
   requestBody.context_management = {
     edits: [
       {
         type: "compact_20260112",
-      }
-    ]
+      },
+    ],
   };
 
   return requestBody;
@@ -281,7 +401,11 @@ function buildAnthropicRequestBody({ messages, system, model, temperature, max_t
 
 async function anthropicFetch(path, body) {
   console.log("🧠 Sending to Anthropic model:", body.model);
-  console.log("🧪 Beta header:", "context-1m-2025-08-07,compact-2026-01-12");
+  console.log(
+    "🧪 Beta header:",
+    "context-1m-2025-08-07,compact-2026-01-12"
+  );
+
   return fetch(`https://api.anthropic.com${path}`, {
     method: "POST",
     headers: {
@@ -347,63 +471,113 @@ app.post("/api/chat", async (req, res) => {
 
     if (!response.ok) {
       const error = await response.json();
-      res.write(`data: ${JSON.stringify({ type: "error", error: error.error?.message || "API error" })}\n\n`);
+      res.write(
+        `data: ${JSON.stringify({
+          type: "error",
+          error: error.error?.message || "API error",
+        })}\n\n`
+      );
       res.end();
       return;
     }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+
     let currentBlockType = null;
+    let currentCompactionContent = "";
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+
       for (const line of decoder.decode(value).split("\n")) {
         if (!line.startsWith("data: ")) continue;
+
         const data = line.slice(6);
         if (data === "[DONE]") continue;
+
         try {
           const parsed = JSON.parse(data);
 
-          // Track what type of content block we're in
           if (parsed.type === "content_block_start") {
             currentBlockType = parsed.content_block?.type || null;
+
             if (currentBlockType === "compaction") {
-              // Notify client that compaction is happening
-              res.write(`data: ${JSON.stringify({ type: "compaction_start" })}\n\n`);
+              currentCompactionContent = "";
+              res.write(
+                `data: ${JSON.stringify({ type: "compaction_start" })}\n\n`
+              );
             }
+          }
+
+          if (
+            parsed.type === "content_block_delta" &&
+            parsed.delta?.type === "text_delta"
+          ) {
+            res.write(
+              `data: ${JSON.stringify({
+                type: "text",
+                text: parsed.delta.text,
+              })}\n\n`
+            );
+          }
+
+          if (
+            parsed.type === "content_block_delta" &&
+            parsed.delta?.type === "compaction_delta"
+          ) {
+            currentCompactionContent += parsed.delta.content || "";
           }
 
           if (parsed.type === "content_block_stop") {
+            if (
+              currentBlockType === "compaction" &&
+              currentCompactionContent.trim()
+            ) {
+              res.write(
+                `data: ${JSON.stringify({
+                  type: "compaction",
+                  content: currentCompactionContent,
+                })}\n\n`
+              );
+            }
+
             currentBlockType = null;
+            currentCompactionContent = "";
           }
 
-          // Forward text deltas
-          if (parsed.type === "content_block_delta" && parsed.delta?.type === "text_delta") {
-            res.write(`data: ${JSON.stringify({ type: "text", text: parsed.delta.text })}\n\n`);
-          }
-
-          // Forward compaction deltas — the summary content
-          if (parsed.type === "content_block_delta" && parsed.delta?.type === "compaction_delta") {
-            res.write(`data: ${JSON.stringify({ type: "compaction", content: parsed.delta.content })}\n\n`);
-          }
-
-          // Forward usage info
           if (parsed.type === "message_delta" && parsed.usage) {
-            res.write(`data: ${JSON.stringify({ type: "usage", usage: parsed.usage })}\n\n`);
+            res.write(
+              `data: ${JSON.stringify({
+                type: "usage",
+                usage: parsed.usage,
+              })}\n\n`
+            );
           }
+
           if (parsed.type === "message_start" && parsed.message?.usage) {
-            res.write(`data: ${JSON.stringify({ type: "usage_start", usage: parsed.message.usage })}\n\n`);
+            res.write(
+              `data: ${JSON.stringify({
+                type: "usage_start",
+                usage: parsed.message.usage,
+              })}\n\n`
+            );
           }
-          // Forward the full message object at the end to capture iterations
+
           if (parsed.type === "message_delta") {
-            // usage.iterations may only appear here or in message_start
             if (parsed.usage?.iterations) {
-              res.write(`data: ${JSON.stringify({ type: "usage_iterations", iterations: parsed.usage.iterations })}\n\n`);
+              res.write(
+                `data: ${JSON.stringify({
+                  type: "usage_iterations",
+                  iterations: parsed.usage.iterations,
+                })}\n\n`
+              );
             }
           }
-        } catch { /* skip */ }
+        } catch {
+          // skip malformed chunks
+        }
       }
     }
 
@@ -411,7 +585,12 @@ app.post("/api/chat", async (req, res) => {
     res.end();
   } catch (err) {
     console.error("Error:", err);
-    res.write(`data: ${JSON.stringify({ type: "error", error: err.message })}\n\n`);
+    res.write(
+      `data: ${JSON.stringify({
+        type: "error",
+        error: err.message,
+      })}\n\n`
+    );
     res.end();
   }
 });
@@ -422,11 +601,13 @@ app.get("*", (req, res) => {
 });
 
 // ── Start server ──────────────────────────────────────────────────────────────
-initDB().then(() => {
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
+initDB()
+  .then(() => {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error("Failed to initialize database:", err);
+    process.exit(1);
   });
-}).catch((err) => {
-  console.error("Failed to initialize database:", err);
-  process.exit(1);
-});
