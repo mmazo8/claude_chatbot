@@ -251,8 +251,9 @@ body,
     background: none;
     border: 1px solid var(--border2);
     color: var(--text2);
-    font-size: 10px;
-    padding: 3px 7px;
+    font-size: 12px;
+    padding: 6px 10px;
+    height: 34px;
     cursor: pointer;
     border-radius: var(--radius);
     transition: border-color 0.15s, color 0.15s;
@@ -311,18 +312,16 @@ body,
     color: var(--red);
 }
 
-.new-chat-header-btn {
-    border-color: var(--accent);
-    color: var(--accent);
-}
-
-.new-chat-header-btn:hover {
-    background: var(--badge-bg);
-}
-
 .logout-btn:hover {
     border-color: var(--accent);
     color: var(--accent);
+}
+
+.header-user {
+    font-size: 11px;
+    color: var(--text3);
+    letter-spacing: 0.06em;
+    font-family: var(--font-mono);
 }
 
 /* ── Main Layout ─────────────────────────────────────────────────────────────── */
@@ -340,7 +339,7 @@ body,
     flex-shrink: 0;
     border-right: 1px solid var(--border);
     background: var(--bg2);
-    overflow: hidden;           /* ← was: overflow-y: auto */
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     gap: 1px;
@@ -568,8 +567,13 @@ body,
     cursor: pointer;
     padding: 2px 6px;
     border-radius: var(--radius);
-    transition: all 0.15s;
+    transition: all 0.15s, opacity 0.15s;
     letter-spacing: 0.04em;
+    opacity: 0;
+}
+
+.message:hover .copy-btn {
+    opacity: 1;
 }
 
 .copy-btn:hover {
@@ -740,6 +744,12 @@ body,
     color: #c87040;
 }
 
+.token-chip.total {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    color: var(--text2);
+}
+
 /* ── Streaming indicator ──────────────────────────────────────────────────────── */
 .streaming-indicator {
     display: flex;
@@ -796,7 +806,8 @@ body,
     font-size: 15px;
     padding: 12px 14px;
     border-radius: var(--radius);
-    resize: none;
+    resize: vertical;
+    min-height: 60px;
     outline: none;
     line-height: 1.6;
     transition: border-color 0.15s;
@@ -863,44 +874,71 @@ body,
     background: rgba(160, 48, 80, 0.1);
 }
 
-/* ── New Chat Button ─────────────────────────────────────────────────────────── */
-.new-chat-btn {
-    width: 100%;
-    background: none;
-    border: 1px solid var(--border2);
-    color: var(--accent);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    padding: 8px;
-    cursor: pointer;
-    border-radius: var(--radius);
-    transition: all 0.15s;
-    text-align: center;
+.token-count {
+    font-size: 12px;
+    opacity: 0.8;
+    margin-left: 10px;
+    white-space: nowrap;
 }
 
-.new-chat-btn:hover {
-    background: var(--badge-bg);
-    border-color: var(--accent);
+.token-count-warning {
+    color: #ffb84d;
+    font-weight: 600;
+}
+
+.token-count-error {
+    color: var(--red);
+    font-size: 11px;
+}
+
+.token-warning {
+    color: #ff6b6b;
+    font-size: 12px;
+    font-weight: 600;
+    margin-left: 8px;
 }
 
 /* ── Conversation List ───────────────────────────────────────────────────────── */
-
 .convo-section {
-    flex: 1 1 0;                /* ← was: flex: 1; min-height: 0 */
+    flex: 1 1 0;
     min-height: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
 }
 
+.convo-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.new-chat-sidebar-btn {
+    background: none;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    padding: 3px 10px;
+    cursor: pointer;
+    border-radius: var(--radius);
+    transition: all 0.15s;
+}
+
+.new-chat-sidebar-btn:hover {
+    background: var(--badge-bg);
+    color: var(--accent2);
+}
+
 .convo-list {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    flex: 1 1 0;        /* fills remaining space in the section */
-    min-height: 0;      /* critical — lets flex shrink below content size */
-    overflow-y: auto;   /* scrolls instead of overflowing into system prompt */
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .convo-empty {
@@ -959,28 +997,6 @@ body,
     letter-spacing: 0.04em;
 }
 
-.convo-delete {
-    background: none;
-    border: none;
-    color: var(--text3);
-    font-size: 10px;
-    cursor: pointer;
-    padding: 2px 4px;
-    border-radius: 3px;
-    opacity: 0;
-    transition: all 0.12s;
-    flex-shrink: 0;
-}
-
-.convo-item:hover .convo-delete {
-    opacity: 1;
-}
-
-.convo-delete:hover {
-    color: var(--red);
-    background: rgba(160, 48, 80, 0.1);
-}
-
 .convo-confirm {
     display: flex;
     gap: 4px;
@@ -1018,7 +1034,6 @@ body,
     border-color: var(--text2);
 }
 
-/* ── Rename input ─────────────────────────────────────────────────────────── */
 .convo-rename-input {
     width: 100%;
     background: var(--bg);
@@ -1031,7 +1046,6 @@ body,
     outline: none;
 }
 
-/* ── Convo action buttons (rename + delete) ──────────────────────────────── */
 .convo-actions {
     display: flex;
     gap: 2px;
@@ -1065,468 +1079,7 @@ body,
     background: rgba(160, 48, 80, 0.1);
 }
 
-/* ── Sidebar toggle bigger ───────────────────────────────────────────────── */
-.sidebar-toggle {
-    background: none;
-    border: 1px solid var(--border2);
-    color: var(--text2);
-    font-size: 12px;
-    padding: 6px 10px;
-    height: 34px;
-    cursor: pointer;
-    border-radius: var(--radius);
-    transition: border-color 0.15s, color 0.15s;
-}
-
-.sidebar-toggle:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-}
-
-/* ── Username in header ───────────────────────────────────────────────────── */
-.header-user {
-    font-size: 11px;
-    color: var(--text3);
-    letter-spacing: 0.06em;
-    font-family: var(--font-mono);
-}
-
-/* ── Sidebar conversation header with new button ────────────────────────── */
-.convo-section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 10px;
-}
-
-.new-chat-sidebar-btn {
-    background: none;
-    border: 1px solid var(--accent);
-    color: var(--accent);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    padding: 3px 10px;
-    cursor: pointer;
-    border-radius: var(--radius);
-    transition: all 0.15s;
-}
-
-.new-chat-sidebar-btn:hover {
-    background: var(--badge-bg);
-    color: var(--accent2);
-}
-
-/* Prompt token counter */
-.token-count {
-    font-size: 12px;
-    opacity: 0.8;
-    margin-left: 10px;
-    white-space: nowrap;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   PASTE THESE INTO app.css
-   ───────────────────────────────────────────────────────────────────────────── */
-
-/* FIX 1: copy button — hidden by default, fades in on message hover
-   Find the existing .copy-btn block and REPLACE it with this: */
-.copy-btn {
-    background: none;
-    border: 1px solid transparent;
-    color: var(--text3);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    cursor: pointer;
-    padding: 2px 6px;
-    border-radius: var(--radius);
-    transition: all 0.15s, opacity 0.15s;
-    letter-spacing: 0.04em;
-    opacity: 0;                /* hidden by default */
-}
-.message:hover .copy-btn {
-    opacity: 1;                /* show on message hover */
-}
-.copy-btn:hover {
-    border-color: var(--border2);
-    color: var(--text2);
-}
-
-
-/* FIX 2: resizable chat input
-   Find the existing .chat-input block and change "resize: none" to: */
-.chat-input {
-    width: 100%;
-    background: var(--bg3);
-    border: 1px solid var(--border2);
-    color: var(--text);
-    font-family: var(--font-sans);
-    font-size: 15px;
-    padding: 12px 14px;
-    border-radius: var(--radius);
-    resize: vertical;          /* was: none */
-    min-height: 60px;
-    outline: none;
-    line-height: 1.6;
-    transition: border-color 0.15s;
-    margin-bottom: 8px;
-}
-
-
-/* FIX 3 & 4: token tags toggle in sidebar — ADD these new rules anywhere */
-.toggle-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-
-.toggle-label {
-    font-size: 11px;
-    color: var(--text2);
-    letter-spacing: 0.04em;
-}
-
-.toggle-btn {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    padding: 2px 10px;
-    border-radius: var(--radius);
-    cursor: pointer;
-    letter-spacing: 0.06em;
-    transition: all 0.15s;
-}
-
-.toggle-on {
-    background: var(--badge-bg);
-    border: 1px solid var(--accent);
-    color: var(--accent);
-}
-
-.toggle-off {
-    background: none;
-    border: 1px solid var(--border2);
-    color: var(--text3);
-}
-
-.toggle-off:hover {
-    border-color: var(--text2);
-    color: var(--text2);
-}
-
-/* ── Credit warning bar (below chat input) ──────────────────────────────────── */
-.credit-warning-bar {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 6px 16px;
-    background: rgba(255, 80, 80, 0.08);
-    border-top: 1px solid rgba(255, 80, 80, 0.25);
-    color: #c84040;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.04em;
-}
-
-[data-theme="light"] .credit-warning-bar {
-    background: rgba(180, 40, 40, 0.07);
-    border-color: rgba(180, 40, 40, 0.3);
-    color: #a03030;
-}
-
-.credit-warning-bar a {
-    color: inherit;
-    font-weight: 600;
-    text-decoration: underline;
-    text-underline-offset: 2px;
-}
-
-.credit-warning-bar a:hover { opacity: 0.75; }
-
-.credit-warning-clear {
-    background: none;
-    border: none;
-    color: inherit;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    cursor: pointer;
-    opacity: 0.6;
-    padding: 0 2px;
-    line-height: 1;
-}
-.credit-warning-clear:hover { opacity: 1; }
-
-/* ── Low-credit popup overlay ────────────────────────────────────────────────── */
-.credit-popup-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.55);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    animation: fadeIn 0.15s ease;
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to   { opacity: 1; }
-}
-
-.credit-popup {
-    background: var(--bg2);
-    border: 1px solid rgba(255, 80, 80, 0.4);
-    border-radius: var(--radius);
-    padding: 32px 28px 24px;
-    max-width: 360px;
-    width: 90%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-    animation: popIn 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-@keyframes popIn {
-    from { opacity: 0; transform: scale(0.88); }
-    to   { opacity: 1; transform: scale(1); }
-}
-
-.credit-popup-icon {
-    font-size: 28px;
-    line-height: 1;
-    color: #c84040;
-    margin-bottom: 4px;
-}
-
-.credit-popup-title {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--text);
-    margin: 0;
-}
-
-.credit-popup-body {
-    font-size: 13px;
-    color: var(--text2);
-    text-align: center;
-    line-height: 1.6;
-    margin: 0;
-}
-
-.credit-popup-body strong { color: #c84040; }
-
-.credit-popup-link {
-    display: inline-block;
-    margin-top: 4px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.05em;
-    color: var(--accent);
-    text-decoration: none;
-    border: 1px solid var(--accent);
-    padding: 5px 14px;
-    border-radius: var(--radius);
-    transition: all 0.15s;
-}
-.credit-popup-link:hover { background: var(--accent); color: var(--bg); }
-
-.credit-popup-retry {
-    background: none;
-    border: 1px solid #5a8a5a;
-    color: var(--green, #5a8a5a);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    padding: 5px 14px;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition: all 0.15s;
-}
-.credit-popup-retry:hover { background: #5a8a5a22; }
-
-.credit-popup-dismiss {
-    background: none;
-    border: 1px solid var(--border2);
-    color: var(--text3);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.06em;
-    padding: 4px 12px;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition: all 0.15s;
-}
-.credit-popup-dismiss:hover { border-color: var(--text2); color: var(--text2); }
-
-/* ── Compaction Notice (shown on messages that triggered compaction) ────────── */
-.compaction-notice {
-    margin-bottom: 6px;
-    animation: msgIn 0.2s ease;
-}
-
-.compaction-toggle {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    background: var(--badge-bg);
-    border: 1px solid var(--badge-border);
-    border-radius: var(--radius);
-    padding: 6px 10px;
-    cursor: pointer;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.06em;
-    color: var(--accent);
-    transition: all 0.15s;
-}
-
-.compaction-toggle:hover {
-    border-color: var(--accent);
-    background: var(--bg3);
-}
-
-.compaction-icon {
-    font-size: 12px;
-    animation: compactionSpin 2s linear infinite;
-    display: inline-block;
-}
-
-@keyframes compactionSpin {
-    0% {
-        opacity: 0.5;
-    }
-
-    50% {
-        opacity: 1;
-    }
-
-    100% {
-        opacity: 0.5;
-    }
-}
-
-.compaction-toggle .compaction-icon {
-    animation: none;
-    opacity: 1;
-}
-
-.compaction-arrow {
-    margin-left: auto;
-    font-size: 10px;
-    color: var(--text3);
-}
-
-.compaction-summary {
-    margin-top: 4px;
-    background: var(--bg3);
-    border: 1px solid var(--border2);
-    border-radius: var(--radius);
-    padding: 10px 12px;
-    animation: fadeUp 0.15s ease;
-}
-
-.compaction-summary-label {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text3);
-    margin-bottom: 8px;
-}
-
-.compaction-summary-text {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    line-height: 1.6;
-    color: var(--text2);
-    white-space: pre-wrap;
-    word-break: break-word;
-    margin: 0;
-    max-height: 200px;
-    overflow-y: auto;
-    background: none;
-    border: none;
-    padding: 0;
-}
-
-/* ── Live Compaction Indicator (during streaming) ─────────────────────────────── */
-.compaction-live {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    align-self: flex-start;
-    max-width: 860px;
-    width: 100%;
-    background: var(--badge-bg);
-    border: 1px solid var(--badge-border);
-    border-radius: var(--radius);
-    padding: 8px 14px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    color: var(--accent);
-    animation: msgIn 0.2s ease;
-}
-
-.compaction-live-icon {
-    font-size: 13px;
-    animation: compactionPulse 1.5s ease-in-out infinite;
-    display: inline-block;
-}
-
-@keyframes compactionPulse {
-
-    0%,
-    100% {
-        opacity: 0.4;
-        transform: scale(0.9);
-    }
-
-    50% {
-        opacity: 1;
-        transform: scale(1.1);
-    }
-}
-
-.compaction-live-dots {
-    display: flex;
-    gap: 3px;
-    margin-left: 2px;
-}
-
-.compaction-live-dots span {
-    width: 4px;
-    height: 4px;
-    background: var(--accent);
-    border-radius: 50%;
-    animation: pulse 1.2s infinite;
-}
-
-.compaction-live-dots span:nth-child(2) {
-    animation-delay: 0.2s;
-}
-
-.compaction-live-dots span:nth-child(3) {
-    animation-delay: 0.4s;
-}
-
-/* =====================================================================
-   APPEND EVERYTHING BELOW TO THE END OF YOUR EXISTING client/src/app.css
-   ===================================================================== */
-
-/* ── Total Token Chip ──────────────────────────────────────────────────────── */
-.token-chip.total {
-    background: var(--bg3);
-    border: 1px solid var(--border2);
-    color: var(--text2);
-}
-
-/* ── Compaction Notice (shown on messages that triggered compaction) ────────── */
+/* ── Compaction Notice (saved on completed messages) ───────────────────────── */
 .compaction-notice {
     margin-bottom: 6px;
     animation: msgIn 0.2s ease;
@@ -1598,7 +1151,7 @@ body,
     padding: 0;
 }
 
-/* ── Live Compaction Indicator (during streaming) ─────────────────────────────── */
+/* ── Live Compaction Indicator (during streaming) ──────────────────────────── */
 .compaction-live {
     display: flex;
     align-items: center;
@@ -1657,15 +1210,4 @@ body,
 
 .compaction-live-dots span:nth-child(3) {
     animation-delay: 0.4s;
-}
-.token-count-warning {
-    color: #ffb84d;
-    font-weight: 600;
-}
-
-.token-warning {
-    color: #ff6b6b;
-    font-size: 12px;
-    font-weight: 600;
-    margin-left: 8px;
 }
