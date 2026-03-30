@@ -111,12 +111,15 @@ function TokenDisplay({ usage }) {
     }
   }
 
+  const total = input_tokens + output_tokens;
+
   return (
     <div className="token-display">
       {input_tokens  > 0 && <span className="token-chip input">↑ {input_tokens.toLocaleString()}</span>}
       {output_tokens > 0 && <span className="token-chip output">↓ {output_tokens.toLocaleString()}</span>}
       {cache_read    > 0 && <span className="token-chip cache-read">⚡ {cache_read.toLocaleString()} cached</span>}
       {cache_write   > 0 && <span className="token-chip cache-write">📝 {cache_write.toLocaleString()} written</span>}
+      {total         > 0 && <span className="token-chip total">Σ {total.toLocaleString()}</span>}
     </div>
   );
 }
