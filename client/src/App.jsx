@@ -111,15 +111,13 @@ function TokenDisplay({ usage }) {
     }
   }
 
-  const total = input_tokens + output_tokens;
-
   return (
     <div className="token-display">
       {input_tokens  > 0 && <span className="token-chip input">↑ {input_tokens.toLocaleString()}</span>}
       {output_tokens > 0 && <span className="token-chip output">↓ {output_tokens.toLocaleString()}</span>}
       {cache_read    > 0 && <span className="token-chip cache-read">⚡ {cache_read.toLocaleString()} cached</span>}
       {cache_write   > 0 && <span className="token-chip cache-write">📝 {cache_write.toLocaleString()} written</span>}
-      {total         > 0 && <span className="token-chip total">Σ {total.toLocaleString()}</span>}
+      {usage.cumulative_tokens > 0 && <span className="token-chip total">Σ {usage.cumulative_tokens.toLocaleString()} total</span>}
     </div>
   );
 }
@@ -504,6 +502,36 @@ export default function App() {
               }
 
               const assistantMsg = { role: "assistant", content: finalContent, usage: usageData };
+
+              // Compute running cumulative total across entire conversation
+              const prevMessages = msgCache[currentId] || [];
+              let cumulative = 0;
+              for (const m of prevMessages) {
+                if (m.usage) {
+                  let mi = m.usage.input_tokens || 0;
+                  let mo = m.usage.output_tokens || 0;
+                  if (m.usage.iterations && m.usage.iterations.length > 0) {
+                    mi = 0; mo = 0;
+                    for (const iter of m.usage.iterations) {
+                      mi += iter.input_tokens || 0;
+                      mo += iter.output_tokens || 0;
+                    }
+                  }
+                  cumulative += mi + mo;
+                }
+              }
+              // Add this turn's tokens
+              let thisInput = usageData.input_tokens || 0;
+              let thisOutput = usageData.output_tokens || 0;
+              if (usageData.iterations && usageData.iterations.length > 0) {
+                thisInput = 0; thisOutput = 0;
+                for (const iter of usageData.iterations) {
+                  thisInput += iter.input_tokens || 0;
+                  thisOutput += iter.output_tokens || 0;
+                }
+              }
+              cumulative += thisInput + thisOutput;
+              assistantMsg.usage.cumulative_tokens = cumulative;
               setMsgCache((prev) => {
                 const msgs = [...(prev[currentId] || [])];
                 msgs[msgs.length - 1] = assistantMsg;
