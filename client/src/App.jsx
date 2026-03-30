@@ -1036,7 +1036,7 @@ export default function App() {
                 <span className="badge">compact</span>
                 <span className="badge">cache_control</span>
                 <span className="badge">msgs {messages.length}</span>
-                <span className="badge">Σ {conversationTotalTokens.toLocaleString()} tokens</span>
+                <span className="badge">{(promptTokens ?? 0).toLocaleString()} tokens used</span>
               </div>
             </div>
           </aside>
