@@ -415,6 +415,26 @@ export default function App() {
     [messages]
   );
 
+  const contextUsageTokens = useMemo(() => {
+    let maxSeen = 0;
+
+    for (const msg of messages) {
+      const usage = msg?.usage;
+      if (!usage) continue;
+
+      const cacheWritten = usage.cache_creation_input_tokens || 0;
+      const promptCount = usage.input_tokens || 0;
+
+      maxSeen = Math.max(maxSeen, cacheWritten, promptCount);
+    }
+
+    return maxSeen;
+  }, [messages]);
+
+  const contextUsagePercent = useMemo(() => {
+    return Math.min(100, (contextUsageTokens / 1000000) * 100);
+  }, [contextUsageTokens]);
+
   const LARGE_CONVO_TOKEN_THRESHOLD = 300000;
   const LARGE_CONVO_MESSAGE_THRESHOLD = 400;
 
@@ -1036,7 +1056,9 @@ export default function App() {
                 <span className="badge">compact</span>
                 <span className="badge">cache_control</span>
                 <span className="badge">msgs {messages.length}</span>
-                <span className="badge">{promptTokens !== null ? promptTokens.toLocaleString() : "—"} tokens used</span>
+                <span className="badge">
+                  1M {contextUsagePercent.toFixed(1)}% ({contextUsageTokens.toLocaleString()})
+                </span>
               </div>
             </div>
           </aside>
