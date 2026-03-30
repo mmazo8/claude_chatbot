@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "./app.css";
-import "./compaction.css";
 
 const MODELS = [
   { id: "claude-opus-4-6",    label: "Claude Opus 4.6 (1M ctx)" },
