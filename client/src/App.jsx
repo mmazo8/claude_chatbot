@@ -416,19 +416,17 @@ export default function App() {
   );
 
   const contextUsageTokens = useMemo(() => {
-  let maxSeen = 0;
-
-  for (const msg of messages) {
-    const usage = msg?.usage;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const usage = messages[i]?.usage;
     if (!usage) continue;
 
     const cacheWritten = usage.cache_creation_input_tokens || 0;
     const promptCount = usage.input_tokens || 0;
 
-    maxSeen = Math.max(maxSeen, cacheWritten, promptCount);
+    return Math.max(cacheWritten, promptCount);
   }
 
-  return maxSeen;
+  return 0;
 }, [messages]);
 
 const contextUsagePercent = useMemo(() => {
@@ -440,7 +438,10 @@ const contextUsagePercent = useMemo(() => {
   const COMPACTION_START_THRESHOLD = 700000;
   const TOKEN_WARNING_THRESHOLD = 850000;
 
-  const currentContextTokens = promptTokens ?? conversationTotalTokens;
+  const currentContextTokens =
+  promptTokens ??
+  contextUsageTokens ??
+  conversationTotalTokens;
   const enableCompaction = currentContextTokens >= COMPACTION_START_THRESHOLD;
   const nearingLimit = currentContextTokens >= TOKEN_WARNING_THRESHOLD;
 
