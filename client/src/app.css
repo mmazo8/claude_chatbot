@@ -1658,3 +1658,14 @@ body,
 .compaction-live-dots span:nth-child(3) {
     animation-delay: 0.4s;
 }
+.token-count-warning {
+    color: #ffb84d;
+    font-weight: 600;
+}
+
+.token-warning {
+    color: #ff6b6b;
+    font-size: 12px;
+    font-weight: 600;
+    margin-left: 8px;
+}

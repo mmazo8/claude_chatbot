@@ -435,8 +435,15 @@ export default function App() {
     return Math.min(100, (contextUsageTokens / 1000000) * 100);
   }, [contextUsageTokens]);
 
-  const LARGE_CONVO_TOKEN_THRESHOLD = 300000;
+  const LARGE_CONVO_TOKEN_THRESHOLD = 800000;
   const LARGE_CONVO_MESSAGE_THRESHOLD = 400;
+
+  const COMPACTION_START_THRESHOLD = 700000;
+  const TOKEN_WARNING_THRESHOLD = 850000;
+
+  const currentContextTokens = promptTokens ?? conversationTotalTokens;
+  const enableCompaction = currentContextTokens >= COMPACTION_START_THRESHOLD;
+  const nearingLimit = currentContextTokens >= TOKEN_WARNING_THRESHOLD;
 
   const disableLivePromptCount =
     conversationTotalTokens > LARGE_CONVO_TOKEN_THRESHOLD ||
@@ -749,6 +756,7 @@ export default function App() {
           model: currentConvo?.model || DEFAULT_MODEL,
           temperature,
           max_tokens: maxTokens,
+          enableCompaction,
         }),
         signal: controller.signal,
       });
@@ -1053,7 +1061,7 @@ export default function App() {
               <p className="section-label">active features</p>
               <div className="badge-list">
                 <span className="badge">context-1m</span>
-                <span className="badge">compact</span>
+                <span className="badge">{enableCompaction ? "compact:on" : "compact:off"}</span>
                 <span className="badge">cache_control</span>
                 <span className="badge">msgs {messages.length}</span>
                 <span className="badge">
@@ -1103,7 +1111,10 @@ export default function App() {
             <div className="input-actions">
               <span className="input-hint">⌘↵ to send</span>
 
-              <span className="token-count" title="Claude input tokens for what will be sent">
+              <span
+                className={`token-count ${nearingLimit ? "token-count-warning" : ""}`}
+                title="Claude input tokens for what will be sent"
+              >
                 {disableLivePromptCount
                   ? approxInputTokens !== null
                     ? `~${approxInputTokens} input tokens`
@@ -1111,9 +1122,12 @@ export default function App() {
                   : promptTokensLoading
                     ? "counting…"
                     : promptTokens !== null
-                      ? `${promptTokens} tokens`
+                      ? `${promptTokens.toLocaleString()} tokens`
                       : ""}
               </span>
+              {nearingLimit && (
+                <span className="token-warning">⚠ nearing 1M limit</span>
+              )}
 
               {promptTokensError && !disableLivePromptCount && (
                 <span className="token-count-error">{promptTokensError}</span>

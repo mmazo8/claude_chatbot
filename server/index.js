@@ -302,6 +302,7 @@ function buildAnthropicRequestBody({
   model,
   temperature,
   max_tokens,
+  enableCompaction = true,
 }) {
   const cleanMessages = (messages || [])
     .map((msg, i, arr) => {
@@ -388,6 +389,7 @@ function buildAnthropicRequestBody({
     ];
   }
 
+  if (enableCompaction) {
   requestBody.context_management = {
     edits: [
       {
@@ -395,6 +397,7 @@ function buildAnthropicRequestBody({
       },
     ],
   };
+}
 
   return requestBody;
 }
@@ -447,7 +450,7 @@ app.post("/api/count-tokens", async (req, res) => {
 
 // ── Chat endpoint (streaming) ─────────────────────────────────────────────────
 app.post("/api/chat", async (req, res) => {
-  const { messages, system, model, temperature, max_tokens } = req.body;
+  const { messages, system, model, temperature, max_tokens, enableCompaction } = req.body;
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -461,6 +464,7 @@ app.post("/api/chat", async (req, res) => {
       model: model || "claude-opus-4-6",
       temperature: temperature ?? 1,
       max_tokens: max_tokens || 32000,
+      enableCompaction: enableCompaction ?? true,
     });
 
     requestBody.stream = true;
