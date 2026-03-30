@@ -90,12 +90,29 @@ function LoginScreen({ onLogin }) {
 // ── Token Counter ─────────────────────────────────────────────────────────────
 function TokenDisplay({ usage }) {
   if (!usage) return null;
+
+  // If iterations exist (compaction happened), sum across all iterations for true totals
+  let totalInput = usage.input_tokens || 0;
+  let totalOutput = usage.output_tokens || 0;
+  let totalCached = usage.cache_read_input_tokens || 0;
+
+  if (usage.iterations && usage.iterations.length > 0) {
+    totalInput = 0;
+    totalOutput = 0;
+    totalCached = 0;
+    for (const iter of usage.iterations) {
+      totalInput += iter.input_tokens || 0;
+      totalOutput += iter.output_tokens || 0;
+      totalCached += iter.cache_read_input_tokens || 0;
+    }
+  }
+
+  const totalUsed = totalInput + totalOutput;
+
   return (
     <div className="token-display">
-      {usage.input_tokens        != null && <span className="token-chip input">↑ {usage.input_tokens.toLocaleString()}</span>}
-      {usage.output_tokens       != null && <span className="token-chip output">↓ {usage.output_tokens.toLocaleString()}</span>}
-      {usage.cache_read_input_tokens  > 0 && <span className="token-chip cache-read">⚡ {usage.cache_read_input_tokens.toLocaleString()} cached</span>}
-      {usage.cache_creation_input_tokens > 0 && <span className="token-chip cache-write">📝 {usage.cache_creation_input_tokens.toLocaleString()} written</span>}
+      {totalUsed > 0 && <span className="token-chip input">{totalUsed.toLocaleString()} tokens used</span>}
+      {totalCached > 0 && <span className="token-chip cache-read">⚡ {totalCached.toLocaleString()} cached</span>}
     </div>
   );
 }
@@ -147,7 +164,7 @@ function Message({ msg }) {
     <div className={`message message-${msg.role}`}>
       <div className="message-header">
         <span className="message-role">{msg.role === "user" ? "you" : "claude"}</span>
-        {msg.role === "assistant" && <button className="copy-btn" onClick={copy}>{copied ? "copied!" : "copy"}</button>}
+        <button className="copy-btn" onClick={copy}>{copied ? "copied!" : "copy"}</button>
       </div>
       {compactionBlocks.length > 0 && compactionBlocks.map((block, i) => (
         <CompactionNotice key={i} content={block.content} />
@@ -465,6 +482,7 @@ export default function App() {
             }
             if (parsed.type === "usage_start") usageData = { ...usageData, ...parsed.usage };
             if (parsed.type === "usage")       usageData = { ...usageData, ...parsed.usage };
+            if (parsed.type === "usage_iterations") usageData = { ...usageData, iterations: parsed.iterations };
             if (parsed.type === "done") {
               setCompacting(false);
               // Build the content: if compaction occurred, store as array with compaction blocks + text

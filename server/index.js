@@ -396,6 +396,13 @@ app.post("/api/chat", async (req, res) => {
           if (parsed.type === "message_start" && parsed.message?.usage) {
             res.write(`data: ${JSON.stringify({ type: "usage_start", usage: parsed.message.usage })}\n\n`);
           }
+          // Forward the full message object at the end to capture iterations
+          if (parsed.type === "message_delta") {
+            // usage.iterations may only appear here or in message_start
+            if (parsed.usage?.iterations) {
+              res.write(`data: ${JSON.stringify({ type: "usage_iterations", iterations: parsed.usage.iterations })}\n\n`);
+            }
+          }
         } catch { /* skip */ }
       }
     }
