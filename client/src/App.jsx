@@ -459,18 +459,21 @@ export default function App() {
   );
 
   const contextUsageTokens = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const usage = messages[i]?.usage;
-      if (!usage) continue;
+  let maxSeen = 0;
 
-      const cacheWritten = usage.cache_creation_input_tokens || 0;
-      const promptCount = usage.input_tokens || 0;
+  for (const msg of messages) {
+    const usage = msg?.usage;
+    if (!usage) continue;
 
-      return Math.max(cacheWritten, promptCount);
-    }
+    const cacheWritten = usage.cache_creation_input_tokens || 0;
+    const cacheRead = usage.cache_read_input_tokens || 0;
+    const promptCount = usage.input_tokens || 0;
 
-    return 0;
-  }, [messages]);
+    maxSeen = Math.max(maxSeen, cacheWritten, cacheRead, promptCount);
+  }
+
+  return maxSeen;
+}, [messages]);
 
   const contextUsagePercent = useMemo(() => {
     return Math.min(100, (contextUsageTokens / 1000000) * 100);
