@@ -286,16 +286,31 @@ const Message = memo(function Message({ msg, onDelete }) {
           {!msg.streaming && msg.id && (
             confirmDelete ? (
               <>
-                <button className="delete-btn delete-btn-confirm" onClick={handleDelete}>
-                  confirm
+                <button
+                  className="delete-icon-btn delete-btn-confirm"
+                  onClick={handleDelete}
+                  title="Confirm delete"
+                  aria-label="Confirm delete"
+                >
+                  ✓
                 </button>
-                <button className="delete-btn" onClick={() => setConfirmDelete(false)}>
-                  cancel
+                <button
+                  className="delete-icon-btn"
+                  onClick={() => setConfirmDelete(false)}
+                  title="Cancel"
+                  aria-label="Cancel delete"
+                >
+                  ×
                 </button>
               </>
             ) : (
-              <button className="delete-btn" onClick={() => setConfirmDelete(true)}>
-                delete
+              <button
+                className="delete-icon-btn"
+                onClick={() => setConfirmDelete(true)}
+                title="Delete message"
+                aria-label="Delete message"
+              >
+                🗑
               </button>
             )
           )}
