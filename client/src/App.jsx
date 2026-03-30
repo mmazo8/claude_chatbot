@@ -487,6 +487,7 @@ export default function App() {
               ...(messages || []).filter((m) => !m.streaming && m.content),
               { role: "user", content: trimmed },
             ],
+            enableCompaction,
           };
 
           const data = await apiFetch("/api/count-tokens", {
@@ -518,6 +519,7 @@ export default function App() {
     username,
     messages,
     disableLivePromptCount,
+    enableCompaction,
   ]);
 
   // ── Theme / scrolling ───────────────────────────────────────────────────────
@@ -528,7 +530,7 @@ export default function App() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, compacting]);
 
   const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
 
@@ -556,7 +558,7 @@ export default function App() {
   useEffect(() => {
     if (!activeId || msgCache[activeId]) return;
     loadMessages(activeId);
-  }, [activeId]);
+  }, [activeId, msgCache]);
 
   const loadMessages = async (id) => {
     try {
@@ -604,6 +606,7 @@ export default function App() {
       setMsgCache((prev) => ({ ...prev, [convo.id]: [] }));
       setActiveId(convo.id);
       setInput("");
+      setCompacting(false);
     } catch (err) {
       console.error("Failed to create conversation:", err);
     }
@@ -613,6 +616,7 @@ export default function App() {
     if (streaming) stopStreaming();
     setActiveId(id);
     setInput("");
+    setCompacting(false);
   };
 
   const deleteConvo = async (id) => {
@@ -738,6 +742,9 @@ export default function App() {
 
     setInput("");
     setStreaming(true);
+    setCompacting(false);
+    setPromptTokens(null);
+    setPromptTokensError(null);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -745,6 +752,7 @@ export default function App() {
     let fullText = "";
     let usageData = {};
     let compactionBlocks = [];
+    let doneReceived = false;
 
     try {
       const res = await fetch("/api/chat", {
@@ -770,7 +778,9 @@ export default function App() {
         const { done, value } = await reader.read();
         if (done) break;
 
-        for (const line of decoder.decode(value).split("\n")) {
+        const chunk = decoder.decode(value, { stream: true });
+
+        for (const line of chunk.split("\n")) {
           if (!line.startsWith("data: ")) continue;
 
           try {
@@ -781,12 +791,15 @@ export default function App() {
             }
 
             if (parsed.type === "text") {
-              if (compactionBlocks.length > 0 && fullText === "") setCompacting(false);
-              fullText += parsed.text;
+              fullText += parsed.text || "";
 
               setMsgCache((prev) => {
                 const msgs = [...(prev[currentId] || [])];
-                msgs[msgs.length - 1] = { role: "assistant", content: fullText, streaming: true };
+                msgs[msgs.length - 1] = {
+                  role: "assistant",
+                  content: fullText,
+                  streaming: true,
+                };
                 return { ...prev, [currentId]: msgs };
               });
             }
@@ -797,6 +810,7 @@ export default function App() {
               parsed.content.trim()
             ) {
               compactionBlocks.push({ type: "compaction", content: parsed.content });
+              setCompacting(false);
             }
 
             if (parsed.type === "usage_start") usageData = { ...usageData, ...parsed.usage };
@@ -806,6 +820,7 @@ export default function App() {
             }
 
             if (parsed.type === "done") {
+              doneReceived = true;
               setCompacting(false);
 
               let finalContent;
@@ -818,12 +833,6 @@ export default function App() {
                 finalContent = fullText;
               }
 
-              const assistantMsg = {
-                role: "assistant",
-                content: finalContent,
-                usage: usageData,
-              };
-
               const prevMessages = msgCache[currentId] || [];
               let cumulative = 0;
 
@@ -835,9 +844,13 @@ export default function App() {
               const thisTotals = getUsageTotals(usageData);
               cumulative += thisTotals.input_tokens + thisTotals.output_tokens;
 
-              assistantMsg.usage = {
-                ...(assistantMsg.usage || {}),
-                cumulative_tokens: cumulative,
+              const assistantMsg = {
+                role: "assistant",
+                content: finalContent,
+                usage: {
+                  ...(usageData || {}),
+                  cumulative_tokens: cumulative,
+                },
               };
 
               setMsgCache((prev) => {
@@ -867,6 +880,9 @@ export default function App() {
             }
 
             if (parsed.type === "error") {
+              doneReceived = true;
+              setCompacting(false);
+
               setMsgCache((prev) => {
                 const msgs = [...(prev[currentId] || [])];
                 msgs[msgs.length - 1] = {
@@ -882,7 +898,13 @@ export default function App() {
           }
         }
       }
+
+      if (!doneReceived) {
+        setCompacting(false);
+      }
     } catch (err) {
+      setCompacting(false);
+
       if (err.name !== "AbortError") {
         setMsgCache((prev) => {
           const msgs = [...(prev[currentId] || [])];
@@ -894,10 +916,11 @@ export default function App() {
           return { ...prev, [currentId]: msgs };
         });
       }
+    } finally {
+      setStreaming(false);
+      setCompacting(false);
+      abortRef.current = null;
     }
-
-    setStreaming(false);
-    setCompacting(false);
   }, [
     input,
     msgCache,
@@ -908,6 +931,7 @@ export default function App() {
     username,
     temperature,
     maxTokens,
+    enableCompaction,
   ]);
 
   const stopStreaming = () => {
@@ -1061,7 +1085,7 @@ export default function App() {
               <p className="section-label">active features</p>
               <div className="badge-list">
                 <span className="badge">context-1m</span>
-                <span className="badge">"compact:on"</span>
+                <span className="badge">{enableCompaction ? "compact:on" : "compact:off"}</span>
                 <span className="badge">cache_control</span>
                 <span className="badge">msgs {messages.length}</span>
                 <span className="badge">
@@ -1086,7 +1110,8 @@ export default function App() {
             ))}
 
             {streaming && compacting && <CompactionIndicator />}
-            {streaming && messages[messages.length - 1]?.streaming && (
+
+            {streaming && messages[messages.length - 1]?.streaming && !compacting && (
               <div className="streaming-indicator">
                 <span />
                 <span />
@@ -1125,9 +1150,8 @@ export default function App() {
                       ? `${promptTokens.toLocaleString()} tokens`
                       : ""}
               </span>
-              {nearingLimit && (
-                <span className="token-warning">⚠ nearing 1M limit</span>
-              )}
+
+              {nearingLimit && <span className="token-warning">⚠ nearing 1M limit</span>}
 
               {promptTokensError && !disableLivePromptCount && (
                 <span className="token-count-error">{promptTokensError}</span>

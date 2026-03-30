@@ -14,6 +14,7 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const CLIENT_DIST = path.resolve(__dirname, "../client/dist");
 
+// change to 700000 when you're done testing
 const COMPACTION_TRIGGER_TOKENS = 300000;
 
 // ── Database setup ────────────────────────────────────────────────────────────
@@ -56,6 +57,7 @@ async function initDB() {
 console.log("NODE_ENV:", process.env.NODE_ENV);
 console.log("PORT:", PORT);
 console.log("CLIENT_DIST:", CLIENT_DIST);
+console.log("COMPACTION_TRIGGER_TOKENS:", COMPACTION_TRIGGER_TOKENS);
 
 app.use(express.json({ limit: "10mb" }));
 app.use(
@@ -147,8 +149,6 @@ app.post("/api/auth", (req, res) => {
 });
 
 // ── Conversations CRUD ────────────────────────────────────────────────────────
-
-// GET all conversations for a user
 app.get("/api/conversations", async (req, res) => {
   const username = req.headers["x-username"];
   if (!username) return res.status(400).json({ error: "Username required" });
@@ -165,7 +165,6 @@ app.get("/api/conversations", async (req, res) => {
   }
 });
 
-// GET a single conversation with its messages
 app.get("/api/conversations/:id", async (req, res) => {
   const username = req.headers["x-username"];
   if (!username) return res.status(400).json({ error: "Username required" });
@@ -205,7 +204,6 @@ app.get("/api/conversations/:id", async (req, res) => {
   }
 });
 
-// POST create a new conversation
 app.post("/api/conversations", async (req, res) => {
   const username = req.headers["x-username"];
   if (!username) return res.status(400).json({ error: "Username required" });
@@ -215,7 +213,15 @@ app.post("/api/conversations", async (req, res) => {
   try {
     await pool.query(
       "INSERT INTO conversations (id, username, title, model, system, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",
-      [id, username, title || "New conversation", model, system || "", created_at, updated_at]
+      [
+        id,
+        username,
+        title || "New conversation",
+        model,
+        system || "",
+        created_at,
+        updated_at,
+      ]
     );
     res.json({ success: true });
   } catch (err) {
@@ -224,7 +230,6 @@ app.post("/api/conversations", async (req, res) => {
   }
 });
 
-// PATCH update conversation metadata (title, model, system)
 app.patch("/api/conversations/:id", async (req, res) => {
   const username = req.headers["x-username"];
   if (!username) return res.status(400).json({ error: "Username required" });
@@ -249,7 +254,6 @@ app.patch("/api/conversations/:id", async (req, res) => {
   }
 });
 
-// DELETE a conversation
 app.delete("/api/conversations/:id", async (req, res) => {
   const username = req.headers["x-username"];
   if (!username) return res.status(400).json({ error: "Username required" });
@@ -266,7 +270,6 @@ app.delete("/api/conversations/:id", async (req, res) => {
   }
 });
 
-// POST add a message to a conversation
 app.post("/api/conversations/:id/messages", async (req, res) => {
   const username = req.headers["x-username"];
   if (!username) return res.status(400).json({ error: "Username required" });
@@ -283,7 +286,14 @@ app.post("/api/conversations/:id/messages", async (req, res) => {
   try {
     await pool.query(
       "INSERT INTO messages (conversation_id, username, role, content, usage, created_at) VALUES ($1,$2,$3,$4,$5,$6)",
-      [req.params.id, username, role, contentStr, usage ? JSON.stringify(usage) : null, now]
+      [
+        req.params.id,
+        username,
+        role,
+        contentStr,
+        usage ? JSON.stringify(usage) : null,
+        now,
+      ]
     );
 
     await pool.query(
@@ -408,14 +418,14 @@ function buildAnthropicRequestBody({
   return requestBody;
 }
 
-async function anthropicFetch(path, body) {
+async function anthropicFetch(apiPath, body) {
   console.log("🧠 Sending to Anthropic model:", body.model);
   console.log(
     "🧪 Beta header:",
     "context-1m-2025-08-07,compact-2026-01-12"
   );
 
-  return fetch(`https://api.anthropic.com${path}`, {
+  return fetch(`https://api.anthropic.com${apiPath}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -427,7 +437,7 @@ async function anthropicFetch(path, body) {
   });
 }
 
-// ── Token counting (prompt tracker) ───────────────────────────────────────────
+// ── Token counting ────────────────────────────────────────────────────────────
 app.post("/api/count-tokens", async (req, res) => {
   const { messages, system, model, enableCompaction } = req.body;
 
@@ -443,6 +453,7 @@ app.post("/api/count-tokens", async (req, res) => {
     const data = await response.json();
 
     if (!response.ok) {
+      console.error("count_tokens error:", data);
       return res.status(response.status).json({
         error: data?.error?.message || "Token count failed",
       });
@@ -467,8 +478,9 @@ app.post("/api/chat", async (req, res) => {
   } = req.body;
 
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
   try {
@@ -495,10 +507,12 @@ app.post("/api/chat", async (req, res) => {
 
     if (!response.ok) {
       const error = await response.json();
+      console.error("Anthropic API error:", error);
+
       res.write(
         `data: ${JSON.stringify({
           type: "error",
-          error: error.error?.message || "API error",
+          error: error?.error?.message || "API error",
         })}\n\n`
       );
       res.end();
@@ -515,11 +529,14 @@ app.post("/api/chat", async (req, res) => {
       const { done, value } = await reader.read();
       if (done) break;
 
-      for (const line of decoder.decode(value).split("\n")) {
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split("\n");
+
+      for (const line of lines) {
         if (!line.startsWith("data: ")) continue;
 
-        const data = line.slice(6);
-        if (data === "[DONE]") continue;
+        const data = line.slice(6).trim();
+        if (!data || data === "[DONE]") continue;
 
         try {
           const parsed = JSON.parse(data);
@@ -530,8 +547,11 @@ app.post("/api/chat", async (req, res) => {
             if (currentBlockType === "compaction") {
               console.log("🧩 Anthropic started compaction for this response");
               currentCompactionContent = "";
+
               res.write(
-                `data: ${JSON.stringify({ type: "compaction_start" })}\n\n`
+                `data: ${JSON.stringify({
+                  type: "compaction_start",
+                })}\n\n`
               );
             }
           }
@@ -572,15 +592,6 @@ app.post("/api/chat", async (req, res) => {
             currentCompactionContent = "";
           }
 
-          if (parsed.type === "message_delta" && parsed.usage) {
-            res.write(
-              `data: ${JSON.stringify({
-                type: "usage",
-                usage: parsed.usage,
-              })}\n\n`
-            );
-          }
-
           if (parsed.type === "message_start" && parsed.message?.usage) {
             res.write(
               `data: ${JSON.stringify({
@@ -590,30 +601,43 @@ app.post("/api/chat", async (req, res) => {
             );
           }
 
-          if (parsed.type === "message_delta") {
-            if (parsed.usage?.iterations) {
-              res.write(
-                `data: ${JSON.stringify({
-                  type: "usage_iterations",
-                  iterations: parsed.usage.iterations,
-                })}\n\n`
-              );
-            }
+          if (parsed.type === "message_delta" && parsed.usage) {
+            res.write(
+              `data: ${JSON.stringify({
+                type: "usage",
+                usage: parsed.usage,
+              })}\n\n`
+            );
           }
-        } catch {
-          // skip malformed chunks
+
+          if (
+            parsed.type === "message_delta" &&
+            parsed.usage?.iterations
+          ) {
+            res.write(
+              `data: ${JSON.stringify({
+                type: "usage_iterations",
+                iterations: parsed.usage.iterations,
+              })}\n\n`
+            );
+          }
+
+          if (parsed.type === "message_stop") {
+            res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+          }
+        } catch (err) {
+          console.error("SSE parse skip:", err?.message);
         }
       }
     }
 
-    res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
     res.end();
   } catch (err) {
-    console.error("Error:", err);
+    console.error("Chat route error:", err);
     res.write(
       `data: ${JSON.stringify({
         type: "error",
-        error: err.message,
+        error: err.message || "Server error",
       })}\n\n`
     );
     res.end();
