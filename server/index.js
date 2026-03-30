@@ -14,6 +14,8 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const CLIENT_DIST = path.resolve(__dirname, "../client/dist");
 
+const COMPACTION_TRIGGER_TOKENS = 700000;
+
 // ── Database setup ────────────────────────────────────────────────────────────
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
@@ -390,14 +392,18 @@ function buildAnthropicRequestBody({
   }
 
   if (enableCompaction) {
-  requestBody.context_management = {
-    edits: [
-      {
-        type: "compact_20260112",
-      },
-    ],
-  };
-}
+    requestBody.context_management = {
+      edits: [
+        {
+          type: "compact_20260112",
+          trigger: {
+            type: "input_tokens",
+            value: COMPACTION_TRIGGER_TOKENS,
+          },
+        },
+      ],
+    };
+  }
 
   return requestBody;
 }
@@ -423,13 +429,14 @@ async function anthropicFetch(path, body) {
 
 // ── Token counting (prompt tracker) ───────────────────────────────────────────
 app.post("/api/count-tokens", async (req, res) => {
-  const { messages, system, model } = req.body;
+  const { messages, system, model, enableCompaction } = req.body;
 
   try {
     const body = buildAnthropicRequestBody({
       messages,
       system,
       model: model || "claude-opus-4-6",
+      enableCompaction: enableCompaction ?? true,
     });
 
     const response = await anthropicFetch("/v1/messages/count_tokens", body);
@@ -450,7 +457,14 @@ app.post("/api/count-tokens", async (req, res) => {
 
 // ── Chat endpoint (streaming) ─────────────────────────────────────────────────
 app.post("/api/chat", async (req, res) => {
-  const { messages, system, model, temperature, max_tokens, enableCompaction } = req.body;
+  const {
+    messages,
+    system,
+    model,
+    temperature,
+    max_tokens,
+    enableCompaction,
+  } = req.body;
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -458,6 +472,8 @@ app.post("/api/chat", async (req, res) => {
   res.flushHeaders();
 
   try {
+    console.log("🧩 enableCompaction from client:", enableCompaction);
+
     const requestBody = buildAnthropicRequestBody({
       messages,
       system,
@@ -470,6 +486,10 @@ app.post("/api/chat", async (req, res) => {
     requestBody.stream = true;
 
     console.log("🧠 MODEL BEING SENT TO ANTHROPIC:", requestBody.model);
+    console.log(
+      "🧩 Compaction config:",
+      JSON.stringify(requestBody.context_management || null, null, 2)
+    );
 
     const response = await anthropicFetch("/v1/messages", requestBody);
 
@@ -508,6 +528,7 @@ app.post("/api/chat", async (req, res) => {
             currentBlockType = parsed.content_block?.type || null;
 
             if (currentBlockType === "compaction") {
+              console.log("🧩 Anthropic started compaction for this response");
               currentCompactionContent = "";
               res.write(
                 `data: ${JSON.stringify({ type: "compaction_start" })}\n\n`

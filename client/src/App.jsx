@@ -1061,7 +1061,7 @@ export default function App() {
               <p className="section-label">active features</p>
               <div className="badge-list">
                 <span className="badge">context-1m</span>
-                <span className="badge">{enableCompaction ? "compact:on" : "compact:off"}</span>
+                <span className="badge">"compact:on"</span>
                 <span className="badge">cache_control</span>
                 <span className="badge">msgs {messages.length}</span>
                 <span className="badge">
