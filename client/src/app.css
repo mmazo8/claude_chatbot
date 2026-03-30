@@ -1211,3 +1211,27 @@ body,
 .compaction-live-dots span:nth-child(3) {
     animation-delay: 0.4s;
 }
+
+.message-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.delete-btn {
+    background: transparent;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+    color: inherit;
+    padding: 4px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    font: inherit;
+}
+
+.delete-btn:hover {
+    opacity: 0.85;
+}
+
+.delete-btn-confirm {
+    border-color: rgba(255, 80, 80, 0.5);
+}

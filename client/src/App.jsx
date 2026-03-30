@@ -254,8 +254,9 @@ function CompactionIndicator() {
 }
 
 // ── Message Bubble ────────────────────────────────────────────────────────────
-const Message = memo(function Message({ msg }) {
+const Message = memo(function Message({ msg, onDelete }) {
   const [copied, setCopied] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const displayText = getDisplayText(msg.content);
   const compactionBlocks = getCompactionBlocks(msg.content);
 
@@ -265,13 +266,40 @@ const Message = memo(function Message({ msg }) {
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const handleDelete = () => {
+    if (typeof onDelete === "function") {
+      onDelete(msg);
+    }
+    setConfirmDelete(false);
+  };
+
   return (
     <div className={`message message-${msg.role}`}>
       <div className="message-header">
         <span className="message-role">{msg.role === "user" ? "you" : "claude"}</span>
-        <button className="copy-btn" onClick={copy}>
-          {copied ? "copied!" : "copy"}
-        </button>
+
+        <div className="message-actions">
+          <button className="copy-btn" onClick={copy}>
+            {copied ? "copied!" : "copy"}
+          </button>
+
+          {!msg.streaming && msg.id && (
+            confirmDelete ? (
+              <>
+                <button className="delete-btn delete-btn-confirm" onClick={handleDelete}>
+                  confirm
+                </button>
+                <button className="delete-btn" onClick={() => setConfirmDelete(false)}>
+                  cancel
+                </button>
+              </>
+            ) : (
+              <button className="delete-btn" onClick={() => setConfirmDelete(true)}>
+                delete
+              </button>
+            )
+          )}
+        </div>
       </div>
 
       {compactionBlocks.length > 0 &&
@@ -416,22 +444,23 @@ export default function App() {
   );
 
   const contextUsageTokens = useMemo(() => {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const usage = messages[i]?.usage;
-    if (!usage) continue;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const usage = messages[i]?.usage;
+      if (!usage) continue;
 
-    const cacheWritten = usage.cache_creation_input_tokens || 0;
-    const promptCount = usage.input_tokens || 0;
+      const cacheWritten = usage.cache_creation_input_tokens || 0;
+      const promptCount = usage.input_tokens || 0;
 
-    return Math.max(cacheWritten, promptCount);
-  }
+      return Math.max(cacheWritten, promptCount);
+    }
 
-  return 0;
-}, [messages]);
+    return 0;
+  }, [messages]);
 
-const contextUsagePercent = useMemo(() => {
-  return Math.min(100, (contextUsageTokens / 1000000) * 100);
-}, [contextUsageTokens]);
+  const contextUsagePercent = useMemo(() => {
+    return Math.min(100, (contextUsageTokens / 1000000) * 100);
+  }, [contextUsageTokens]);
+
   const LARGE_CONVO_TOKEN_THRESHOLD = 800000;
   const LARGE_CONVO_MESSAGE_THRESHOLD = 5000;
 
@@ -439,9 +468,10 @@ const contextUsagePercent = useMemo(() => {
   const TOKEN_WARNING_THRESHOLD = 850000;
 
   const currentContextTokens =
-  promptTokens ??
-  contextUsageTokens ??
-  conversationTotalTokens;
+    promptTokens ??
+    contextUsageTokens ??
+    conversationTotalTokens;
+
   const enableCompaction = currentContextTokens >= COMPACTION_START_THRESHOLD;
   const nearingLimit = currentContextTokens >= TOKEN_WARNING_THRESHOLD;
 
@@ -695,6 +725,62 @@ const contextUsagePercent = useMemo(() => {
     await newChat();
   };
 
+  const deleteMessage = async (msgToDelete) => {
+    if (!activeId || !msgToDelete?.id || streaming) return;
+
+    const currentMessages = msgCache[activeId] || [];
+    const index = currentMessages.findIndex((m) => m.id === msgToDelete.id);
+    if (index === -1) return;
+
+    const idsToRemove = [msgToDelete.id];
+
+    if (msgToDelete.role === "user") {
+      const nextMsg = currentMessages[index + 1];
+      if (nextMsg?.role === "assistant" && nextMsg?.id) {
+        idsToRemove.push(nextMsg.id);
+      }
+    }
+
+    const previousMessages = currentMessages;
+
+    setMsgCache((prev) => ({
+      ...prev,
+      [activeId]: (prev[activeId] || []).filter((m) => !idsToRemove.includes(m.id)),
+    }));
+
+    try {
+      const result = await apiFetch(
+        `/api/conversations/${activeId}/messages/${msgToDelete.id}`,
+        {
+          method: "DELETE",
+          headers: apiHeaders(token, username),
+        }
+      );
+
+      const deletedIds = result?.deleted_ids || idsToRemove;
+
+      setMsgCache((prev) => ({
+        ...prev,
+        [activeId]: (prev[activeId] || []).filter((m) => !deletedIds.includes(m.id)),
+      }));
+
+      setConvos((prev) =>
+        prev.map((c) =>
+          c.id === activeId
+            ? { ...c, updated_at: Date.now() }
+            : c
+        )
+      );
+    } catch (err) {
+      console.error("Failed to delete message:", err);
+
+      setMsgCache((prev) => ({
+        ...prev,
+        [activeId]: previousMessages,
+      }));
+    }
+  };
+
   // ── Send message ────────────────────────────────────────────────────────────
   const sendMessage = useCallback(async () => {
     if (!input.trim() || streaming) return;
@@ -874,6 +960,8 @@ const contextUsagePercent = useMemo(() => {
                   headers: apiHeaders(token, username),
                   body: JSON.stringify({ ...assistantMsg, created_at: assistantTs }),
                 });
+
+                await loadMessages(currentId);
               } catch (e) {
                 console.error("Failed to save messages:", e);
               }
@@ -1106,7 +1194,11 @@ const contextUsagePercent = useMemo(() => {
             )}
 
             {messages.map((msg, i) => (
-              <Message key={i} msg={msg} />
+              <Message
+                key={msg.id ?? `${msg.role}-${i}`}
+                msg={msg}
+                onDelete={deleteMessage}
+              />
             ))}
 
             {streaming && compacting && <CompactionIndicator />}

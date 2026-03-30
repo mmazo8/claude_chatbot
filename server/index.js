@@ -179,7 +179,10 @@ app.get("/api/conversations/:id", async (req, res) => {
     }
 
     const messages = await pool.query(
-      "SELECT role, content, usage FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC",
+      `SELECT id, role, content, usage, created_at
+       FROM messages
+       WHERE conversation_id = $1
+       ORDER BY created_at ASC, id ASC`,
       [req.params.id]
     );
 
@@ -193,7 +196,13 @@ app.get("/api/conversations/:id", async (req, res) => {
         content = sanitizeContent(content);
       }
 
-      return { role: m.role, content, usage: m.usage };
+      return {
+        id: m.id,
+        role: m.role,
+        content,
+        usage: m.usage,
+        created_at: m.created_at,
+      };
     });
 
     res.json({ ...convo.rows[0], messages: parsed });
@@ -293,6 +302,98 @@ app.post("/api/conversations/:id/messages", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Database error" });
+  }
+});
+
+// DELETE a message from a conversation
+// If deleting a user message, also delete the assistant message immediately after it.
+app.delete("/api/conversations/:id/messages/:messageId", async (req, res) => {
+  const username = req.headers["x-username"];
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  const { id: conversationId, messageId } = req.params;
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const convoResult = await client.query(
+      "SELECT id FROM conversations WHERE id = $1 AND username = $2",
+      [conversationId, username]
+    );
+
+    if (convoResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Conversation not found" });
+    }
+
+    const targetResult = await client.query(
+      `SELECT id, role, created_at
+       FROM messages
+       WHERE id = $1 AND conversation_id = $2 AND username = $3`,
+      [messageId, conversationId, username]
+    );
+
+    if (targetResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Message not found" });
+    }
+
+    const target = targetResult.rows[0];
+    const idsToDelete = [target.id];
+
+    if (target.role === "user") {
+      const nextAssistantResult = await client.query(
+        `SELECT id
+         FROM messages
+         WHERE conversation_id = $1
+           AND username = $2
+           AND role = 'assistant'
+           AND (
+             created_at > $3
+             OR (created_at = $3 AND id > $4)
+           )
+         ORDER BY created_at ASC, id ASC
+         LIMIT 1`,
+        [conversationId, username, target.created_at, target.id]
+      );
+
+      if (nextAssistantResult.rows.length > 0) {
+        idsToDelete.push(nextAssistantResult.rows[0].id);
+      }
+    }
+
+    await client.query(
+      `DELETE FROM messages
+       WHERE conversation_id = $1
+         AND username = $2
+         AND id = ANY($3::int[])`,
+      [conversationId, username, idsToDelete]
+    );
+
+    const latestRemaining = await client.query(
+      `SELECT created_at
+       FROM messages
+       WHERE conversation_id = $1
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [conversationId]
+    );
+
+    await client.query(
+      "UPDATE conversations SET updated_at = $1 WHERE id = $2",
+      [latestRemaining.rows[0]?.created_at || Date.now(), conversationId]
+    );
+
+    await client.query("COMMIT");
+
+    res.json({ success: true, deleted_ids: idsToDelete });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error(err);
+    res.status(500).json({ error: "Database error" });
+  } finally {
+    client.release();
   }
 });
 
