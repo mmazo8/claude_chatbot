@@ -493,6 +493,7 @@ function buildAnthropicRequestBody({
     edits: [
       {
         type: "compact_20260112",
+        "trigger": {"type": "input_tokens", "value": 300000},
       },
     ],
   };
