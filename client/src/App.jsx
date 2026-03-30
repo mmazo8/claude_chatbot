@@ -459,21 +459,25 @@ export default function App() {
   );
 
   const contextUsageTokens = useMemo(() => {
-  let maxSeen = 0;
+    // walk backwards to get the MOST RECENT assistant message
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
 
-  for (const msg of messages) {
-    const usage = msg?.usage;
-    if (!usage) continue;
+      if (msg?.role !== "assistant") continue;
+      if (!msg?.usage) continue;
 
-    const cacheWritten = usage.cache_creation_input_tokens || 0;
-    const cacheRead = usage.cache_read_input_tokens || 0;
-    const promptCount = usage.input_tokens || 0;
+      const totals = getUsageTotals(msg.usage);
 
-    maxSeen = Math.max(maxSeen, cacheWritten, cacheRead, promptCount);
-  }
+      const cacheRead = totals.cache_read_input_tokens || 0;
+      const cacheWritten = totals.cache_creation_input_tokens || 0;
+      const promptCount = totals.input_tokens || 0;
 
-  return maxSeen;
-}, [messages]);
+      // BEST ESTIMATE of current context usage
+      return Math.max(cacheRead, cacheWritten, promptCount);
+    }
+
+    return 0;
+  }, [messages]);
 
   const contextUsagePercent = useMemo(() => {
     return Math.min(100, (contextUsageTokens / 1000000) * 100);
