@@ -114,7 +114,8 @@ function ConvoItem({ convo, active, onSelect, onDelete, onRename }) {
   const [editing, setEditing] = useState(false);
   const [editVal, setEditVal] = useState(convo.title);
   const inputRef = useRef(null);
-  const date = new Date(convo.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  // Coerce to number so Postgres string timestamps don't produce "Invalid Date"
+  const date = new Date(Number(convo.updated_at)).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
   const startEdit = (e) => { e.stopPropagation(); setEditVal(convo.title); setEditing(true); setTimeout(() => inputRef.current?.focus(), 0); };
   const commitEdit = () => { if (editVal.trim()) onRename(convo.id, editVal.trim()); setEditing(false); };
@@ -153,7 +154,15 @@ export default function App() {
   // Per-conversation message cache { [id]: Message[] }
   const [msgCache, setMsgCache] = useState({});
 
-  const [input,       setInput]       = useState("");
+  // Per-conversation unsent draft cache { [id]: string }
+  const [draftCache, setDraftCache] = useState({});
+
+  const input    = activeId ? (draftCache[activeId] ?? "") : "";
+  const setInput = (val) => {
+    if (!activeId) return;
+    setDraftCache((prev) => ({ ...prev, [activeId]: typeof val === "function" ? val(prev[activeId] ?? "") : val }));
+  };
+
   const [promptTokens, setPromptTokens] = useState(null);
   const [promptTokensLoading, setPromptTokensLoading] = useState(false);
   const [promptTokensError, setPromptTokensError] = useState(null);
@@ -273,7 +282,7 @@ export default function App() {
   const handleLogout = () => {
     sessionStorage.removeItem("auth_token");
     sessionStorage.removeItem("auth_username");
-    setToken(""); setUsername(""); setConvos([]); setActiveId(null); setMsgCache({});
+    setToken(""); setUsername(""); setConvos([]); setActiveId(null); setMsgCache({}); setDraftCache({});
   };
 
   // ── Conversations ──
@@ -284,17 +293,17 @@ export default function App() {
       setConvos((prev) => [convo, ...prev]);
       setMsgCache((prev) => ({ ...prev, [convo.id]: [] }));
       setActiveId(convo.id);
-      setInput("");
     } catch (err) { console.error("Failed to create conversation:", err); }
   };
 
-  const selectConvo = (id) => { if (streaming) stopStreaming(); setActiveId(id); setInput(""); };
+  const selectConvo = (id) => { if (streaming) stopStreaming(); setActiveId(id); };
 
   const deleteConvo = async (id) => {
     try {
       await apiFetch(`/api/conversations/${id}`, { method: "DELETE", headers: apiHeaders(token, username) });
       setConvos((prev) => prev.filter((c) => c.id !== id));
       setMsgCache((prev) => { const n = { ...prev }; delete n[id]; return n; });
+      setDraftCache((prev) => { const n = { ...prev }; delete n[id]; return n; });
       if (activeId === id) {
         const remaining = convos.filter((c) => c.id !== id);
         setActiveId(remaining.length > 0 ? remaining[0].id : null);
@@ -368,7 +377,8 @@ export default function App() {
       apiFetch(`/api/conversations/${currentId}`, { method: "PATCH", headers: apiHeaders(token, username), body: JSON.stringify({ title }) }).catch(console.error);
     }
 
-    setInput("");
+    // Clear draft for this conversation
+    setDraftCache((prev) => ({ ...prev, [currentId]: "" }));
     setStreaming(true);
 
     const controller = new AbortController();
