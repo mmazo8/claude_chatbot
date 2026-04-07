@@ -1,23 +1,19 @@
-import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
+import { useState, useRef, useEffect, useCallback, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "./app.css";
 
 const MODELS = [
-  { id: "claude-opus-4-6", label: "Claude Opus 4.6 (1M ctx)" },
-  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (1M ctx)" },
+  { id: "claude-opus-4-6",    label: "Claude Opus 4.6 (1M ctx)" },
+  { id: "claude-sonnet-4-6",  label: "Claude Sonnet 4.6 (1M ctx)" },
   { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
 ];
-const DEFAULT_MODEL = MODELS[0].id;
+const DEFAULT_MODEL     = MODELS[0].id;
 const DEFAULT_MAX_TOKENS = 32000;
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 function apiHeaders(token, username) {
-  return {
-    "Content-Type": "application/json",
-    "x-auth-token": token,
-    "x-username": username,
-  };
+  return { "Content-Type": "application/json", "x-auth-token": token, "x-username": username };
 }
 
 async function apiFetch(url, opts = {}) {
@@ -45,127 +41,34 @@ function titleFromMessages(messages) {
   return text.slice(0, 40) + (text.length > 40 ? "…" : "");
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function getDisplayText(content) {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((b) => b.type === "text")
-      .map((b) => b.text || "")
-      .join("");
-  }
-  return "";
-}
-
-function getUsageTotals(usage) {
-  if (!usage) {
-    return {
-      input_tokens: 0,
-      output_tokens: 0,
-      cache_read_input_tokens: 0,
-      cache_creation_input_tokens: 0,
-    };
-  }
-
-  if (Array.isArray(usage.iterations) && usage.iterations.length > 0) {
-    return usage.iterations.reduce(
-      (acc, iter) => {
-        acc.input_tokens += iter.input_tokens || 0;
-        acc.output_tokens += iter.output_tokens || 0;
-        acc.cache_read_input_tokens += iter.cache_read_input_tokens || 0;
-        acc.cache_creation_input_tokens += iter.cache_creation_input_tokens || 0;
-        return acc;
-      },
-      {
-        input_tokens: 0,
-        output_tokens: 0,
-        cache_read_input_tokens: 0,
-        cache_creation_input_tokens: 0,
-      }
-    );
-  }
-
-  return {
-    input_tokens: usage.input_tokens || 0,
-    output_tokens: usage.output_tokens || 0,
-    cache_read_input_tokens: usage.cache_read_input_tokens || 0,
-    cache_creation_input_tokens: usage.cache_creation_input_tokens || 0,
-  };
-}
-
-function getConversationTokenTotal(messages = []) {
-  return messages.reduce((sum, msg) => {
-    const totals = getUsageTotals(msg.usage);
-    return sum + totals.input_tokens + totals.output_tokens;
-  }, 0);
-}
-
-function getCompactionBlocks(content) {
-  if (!Array.isArray(content)) return [];
-  return content.filter(
-    (b) => b.type === "compaction" && typeof b.content === "string" && b.content.trim()
-  );
-}
-
 // ── Login Screen ──────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [error, setError]       = useState("");
+  const [loading, setLoading]   = useState(false);
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-
+    e.preventDefault(); setLoading(true); setError("");
     try {
-      const res = await fetch("/api/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password, username }),
-      });
+      const res  = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password, username }) });
       const data = await res.json();
-
       if (data.success) onLogin(data.token, data.username);
       else setError(data.error || "Invalid credentials");
-    } catch {
-      setError("Connection error");
-    }
-
+    } catch { setError("Connection error"); }
     setLoading(false);
   };
 
   return (
     <div className="login-screen">
       <div className="login-box">
-        <div className="login-logo">
-          <span className="logo-bracket">[</span>
-          <span className="logo-text">WORKBENCH</span>
-          <span className="logo-bracket">]</span>
-        </div>
+        <div className="login-logo"><span className="logo-bracket">[</span><span className="logo-text">WORKBENCH</span><span className="logo-bracket">]</span></div>
         <p className="login-sub">Claude API Interface</p>
-
         <form onSubmit={handleSubmit} className="login-form">
-          <input
-            type="text"
-            placeholder="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="login-input"
-            autoFocus
-          />
-          <input
-            type="password"
-            placeholder="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="login-input"
-          />
+          <input type="text"     placeholder="username"  value={username}  onChange={(e) => setUsername(e.target.value)}  className="login-input" autoFocus />
+          <input type="password" placeholder="password"  value={password}  onChange={(e) => setPassword(e.target.value)}  className="login-input" />
           {error && <p className="login-error">{error}</p>}
-          <button type="submit" className="login-btn" disabled={loading}>
-            {loading ? "authenticating..." : "enter"}
-          </button>
+          <button type="submit" className="login-btn" disabled={loading}>{loading ? "authenticating..." : "enter"}</button>
         </form>
       </div>
     </div>
@@ -175,161 +78,31 @@ function LoginScreen({ onLogin }) {
 // ── Token Counter ─────────────────────────────────────────────────────────────
 function TokenDisplay({ usage }) {
   if (!usage) return null;
-
-  let input_tokens = usage.input_tokens || 0;
-  let output_tokens = usage.output_tokens || 0;
-  let cache_read = usage.cache_read_input_tokens || 0;
-  let cache_write = usage.cache_creation_input_tokens || 0;
-
-  if (usage.iterations && usage.iterations.length > 0) {
-    input_tokens = 0;
-    output_tokens = 0;
-    cache_read = 0;
-    cache_write = 0;
-
-    for (const iter of usage.iterations) {
-      input_tokens += iter.input_tokens || 0;
-      output_tokens += iter.output_tokens || 0;
-      cache_read += iter.cache_read_input_tokens || 0;
-      cache_write += iter.cache_creation_input_tokens || 0;
-    }
-  }
-
   return (
     <div className="token-display">
-      {input_tokens > 0 && (
-        <span className="token-chip input">↑ {input_tokens.toLocaleString()}</span>
-      )}
-      {output_tokens > 0 && (
-        <span className="token-chip output">↓ {output_tokens.toLocaleString()}</span>
-      )}
-      {cache_read > 0 && (
-        <span className="token-chip cache-read">⚡ {cache_read.toLocaleString()} cached</span>
-      )}
-      {cache_write > 0 && (
-        <span className="token-chip cache-write">📝 {cache_write.toLocaleString()} written</span>
-      )}
-      {usage.cumulative_tokens > 0 && (
-        <span className="token-chip total">Σ {usage.cumulative_tokens.toLocaleString()} total</span>
-      )}
-    </div>
-  );
-}
-
-// ── Compaction Notice ─────────────────────────────────────────────────────────
-function CompactionNotice({ content }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="compaction-notice">
-      <button className="compaction-toggle" onClick={() => setExpanded((v) => !v)}>
-        <span className="compaction-icon">◇</span>
-        <span>context compacted</span>
-        <span className="compaction-arrow">{expanded ? "▾" : "▸"}</span>
-      </button>
-
-      {expanded && (
-        <div className="compaction-summary">
-          <p className="compaction-summary-label">compaction summary</p>
-          <pre className="compaction-summary-text">{content}</pre>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Live Compaction Indicator ────────────────────────────────────────────────
-function CompactionIndicator() {
-  return (
-    <div className="compaction-live">
-      <span className="compaction-live-icon">◇</span>
-      <span>compacting context</span>
-      <span className="compaction-live-dots">
-        <span />
-        <span />
-        <span />
-      </span>
+      {usage.input_tokens        != null && <span className="token-chip input">↑ {usage.input_tokens.toLocaleString()}</span>}
+      {usage.output_tokens       != null && <span className="token-chip output">↓ {usage.output_tokens.toLocaleString()}</span>}
+      {usage.cache_read_input_tokens  > 0 && <span className="token-chip cache-read">⚡ {usage.cache_read_input_tokens.toLocaleString()} cached</span>}
+      {usage.cache_creation_input_tokens > 0 && <span className="token-chip cache-write">📝 {usage.cache_creation_input_tokens.toLocaleString()} written</span>}
     </div>
   );
 }
 
 // ── Message Bubble ────────────────────────────────────────────────────────────
-const Message = memo(function Message({ msg, onDelete }) {
+const Message = memo(function Message({ msg }) {
   const [copied, setCopied] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const displayText = getDisplayText(msg.content);
-  const compactionBlocks = getCompactionBlocks(msg.content);
-
-  const copy = () => {
-    navigator.clipboard.writeText(displayText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
-  const handleDelete = () => {
-    if (typeof onDelete === "function") {
-      onDelete(msg);
-    }
-    setConfirmDelete(false);
-  };
-
+  const copy = () => { navigator.clipboard.writeText(msg.content); setCopied(true); setTimeout(() => setCopied(false), 1500); };
   return (
     <div className={`message message-${msg.role}`}>
       <div className="message-header">
         <span className="message-role">{msg.role === "user" ? "you" : "claude"}</span>
-
-        <div className="message-actions">
-          <button className="copy-btn" onClick={copy}>
-            {copied ? "copied!" : "copy"}
-          </button>
-
-          {!msg.streaming && msg.id && (
-            confirmDelete ? (
-              <>
-                <button
-                  className="delete-icon-btn delete-btn-confirm"
-                  onClick={handleDelete}
-                  title="Confirm delete"
-                  aria-label="Confirm delete"
-                >
-                  ✓
-                </button>
-                <button
-                  className="delete-icon-btn"
-                  onClick={() => setConfirmDelete(false)}
-                  title="Cancel"
-                  aria-label="Cancel delete"
-                >
-                  ×
-                </button>
-              </>
-            ) : (
-              <button
-                className="delete-icon-btn"
-                onClick={() => setConfirmDelete(true)}
-                title="Delete message"
-                aria-label="Delete message"
-              >
-                🗑
-              </button>
-            )
-          )}
-        </div>
+        {msg.role === "assistant" && <button className="copy-btn" onClick={copy}>{copied ? "copied!" : "copy"}</button>}
       </div>
-
-      {compactionBlocks.length > 0 &&
-        compactionBlocks.map((block, i) => (
-          <CompactionNotice key={i} content={block.content} />
-        ))}
-
       <div className="message-content">
-        {msg.role === "assistant" ? (
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText}</ReactMarkdown>
-        ) : (
-          <p style={{ whiteSpace: "pre-wrap" }}>{displayText}</p>
-        )}
+        {msg.role === "assistant"
+          ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+          : <p style={{ whiteSpace: "pre-wrap" }}>{msg.content}</p>}
       </div>
-
       {msg.usage && <TokenDisplay usage={msg.usage} />}
     </div>
   );
@@ -341,188 +114,77 @@ function ConvoItem({ convo, active, onSelect, onDelete, onRename }) {
   const [editing, setEditing] = useState(false);
   const [editVal, setEditVal] = useState(convo.title);
   const inputRef = useRef(null);
-  const date = new Date(Number(convo.updated_at)).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
+  const date = new Date(convo.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
-  const startEdit = (e) => {
-    e.stopPropagation();
-    setEditVal(convo.title);
-    setEditing(true);
-    setTimeout(() => inputRef.current?.focus(), 0);
-  };
-
-  const commitEdit = () => {
-    if (editVal.trim()) onRename(convo.id, editVal.trim());
-    setEditing(false);
-  };
-
-  const editKeyDown = (e) => {
-    if (e.key === "Enter") commitEdit();
-    if (e.key === "Escape") setEditing(false);
-  };
+  const startEdit = (e) => { e.stopPropagation(); setEditVal(convo.title); setEditing(true); setTimeout(() => inputRef.current?.focus(), 0); };
+  const commitEdit = () => { if (editVal.trim()) onRename(convo.id, editVal.trim()); setEditing(false); };
+  const editKeyDown = (e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditing(false); };
 
   return (
-    <div
-      className={`convo-item ${active ? "convo-active" : ""}`}
-      onClick={() => !editing && onSelect(convo.id)}
-    >
+    <div className={`convo-item ${active ? "convo-active" : ""}`} onClick={() => !editing && onSelect(convo.id)}>
       <div className="convo-item-body">
-        {editing ? (
-          <input
-            ref={inputRef}
-            className="convo-rename-input"
-            value={editVal}
-            onChange={(e) => setEditVal(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={editKeyDown}
-            onClick={(e) => e.stopPropagation()}
-          />
-        ) : (
-          <span
-            className="convo-title"
-            onDoubleClick={startEdit}
-            title="Double-click to rename"
-          >
-            {convo.title}
-          </span>
-        )}
+        {editing
+          ? <input ref={inputRef} className="convo-rename-input" value={editVal} onChange={(e) => setEditVal(e.target.value)} onBlur={commitEdit} onKeyDown={editKeyDown} onClick={(e) => e.stopPropagation()} />
+          : <span className="convo-title" onDoubleClick={startEdit} title="Double-click to rename">{convo.title}</span>}
         <span className="convo-date">{date}</span>
       </div>
-
-      {!editing &&
-        (confirm ? (
-          <div className="convo-confirm" onClick={(e) => e.stopPropagation()}>
-            <button className="convo-confirm-yes" onClick={() => onDelete(convo.id)}>
-              delete
-            </button>
-            <button className="convo-confirm-no" onClick={() => setConfirm(false)}>
-              cancel
-            </button>
+      {!editing && (confirm
+        ? <div className="convo-confirm" onClick={(e) => e.stopPropagation()}>
+            <button className="convo-confirm-yes" onClick={() => onDelete(convo.id)}>delete</button>
+            <button className="convo-confirm-no"  onClick={() => setConfirm(false)}>cancel</button>
           </div>
-        ) : (
-          <div className="convo-actions" onClick={(e) => e.stopPropagation()}>
-            <button className="convo-action-btn" onClick={startEdit} title="Rename">
-              ✎
-            </button>
-            <button
-              className="convo-action-btn convo-delete"
-              onClick={() => setConfirm(true)}
-              title="Delete"
-            >
-              ✕
-            </button>
+        : <div className="convo-actions" onClick={(e) => e.stopPropagation()}>
+            <button className="convo-action-btn"              onClick={startEdit}           title="Rename">✎</button>
+            <button className="convo-action-btn convo-delete" onClick={() => setConfirm(true)} title="Delete">✕</button>
           </div>
-        ))}
+      )}
     </div>
   );
 }
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [token, setToken] = useState(() => sessionStorage.getItem("auth_token") || "");
-  const [username, setUsername] = useState(
-    () => sessionStorage.getItem("auth_username") || ""
-  );
-  const [convos, setConvos] = useState([]);
+  const [token,    setToken]    = useState(() => sessionStorage.getItem("auth_token")   || "");
+  const [username, setUsername] = useState(() => sessionStorage.getItem("auth_username") || "");
+  const [convos,   setConvos]   = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [loadingConvos, setLoadingConvos] = useState(false);
 
+  // Per-conversation message cache { [id]: Message[] }
   const [msgCache, setMsgCache] = useState({});
 
-  const [input, setInput] = useState("");
+  const [input,       setInput]       = useState("");
   const [promptTokens, setPromptTokens] = useState(null);
   const [promptTokensLoading, setPromptTokensLoading] = useState(false);
   const [promptTokensError, setPromptTokensError] = useState(null);
   const tokenCountReqRef = useRef(0);
-
   const [temperature, setTemperature] = useState(1);
-  const [maxTokens, setMaxTokens] = useState(DEFAULT_MAX_TOKENS);
-  const [streaming, setStreaming] = useState(false);
-  const [compacting, setCompacting] = useState(false);
+  const [maxTokens,   setMaxTokens]   = useState(DEFAULT_MAX_TOKENS);
+  const [streaming,   setStreaming]   = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [systemOpen, setSystemOpen] = useState(true);
-  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark");
+  const [systemOpen,  setSystemOpen]  = useState(true);
+  const [theme,       setTheme]       = useState(() => localStorage.getItem("theme") || "dark");
 
   const bottomRef = useRef(null);
-  const abortRef = useRef(null);
+  const abortRef  = useRef(null);
 
-  const activeConvo = convos.find((c) => c.id === activeId) || null;
-  const messages = msgCache[activeId] || [];
-  const system = activeConvo?.system || "";
-  const model = activeConvo?.model || DEFAULT_MODEL;
+  const activeConvo    = convos.find((c) => c.id === activeId) || null;
+  const messages       = msgCache[activeId] || [];
+  const system         = activeConvo?.system || "";
+  const model          = activeConvo?.model  || DEFAULT_MODEL;
 
-  const conversationTotalTokens = useMemo(
-    () => getConversationTokenTotal(messages),
-    [messages]
-  );
+  // Keep a ref to messages so the token counter effect can read the latest
+  // value without needing it as a dependency (avoids re-triggering on every
+  // streaming chunk, which was the main cause of typing lag).
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
-  const contextUsageTokens = useMemo(() => {
-    const recent = [];
-
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg?.role !== "assistant") continue;
-      if (!msg?.usage) continue;
-
-      const totals = getUsageTotals(msg.usage);
-
-      const estimate =
-        totals.cache_read_input_tokens ||
-        totals.cache_creation_input_tokens ||
-        totals.input_tokens ||
-        0;
-
-      if (estimate > 0) recent.push(estimate);
-      if (recent.length === 3) break;
-    }
-
-    if (recent.length === 0) return 0;
-
-    return Math.round(recent.reduce((a, b) => a + b, 0) / recent.length);
-  }, [messages]);
-
-  const contextUsagePercent = useMemo(() => {
-    return Math.min(100, (contextUsageTokens / 1000000) * 100);
-  }, [contextUsageTokens]);
-
-  const LARGE_CONVO_TOKEN_THRESHOLD = 800000;
-  const LARGE_CONVO_MESSAGE_THRESHOLD = 5000;
-
-  const COMPACTION_START_THRESHOLD = 700000;
-  const TOKEN_WARNING_THRESHOLD = 850000;
-
-  const currentContextTokens =
-    promptTokens ??
-    contextUsageTokens ??
-    conversationTotalTokens;
-
-  const enableCompaction = currentContextTokens >= COMPACTION_START_THRESHOLD;
-  const nearingLimit = currentContextTokens >= TOKEN_WARNING_THRESHOLD;
-
-  const disableLivePromptCount =
-    conversationTotalTokens > LARGE_CONVO_TOKEN_THRESHOLD ||
-    messages.length > LARGE_CONVO_MESSAGE_THRESHOLD;
-
-  const approxInputTokens = useMemo(() => {
-    const trimmed = input.trim();
-    if (!trimmed) return null;
-    return Math.ceil(trimmed.length / 4);
-  }, [input]);
-
-  // ── Prompt token counter ────────────────────────────────────────────────────
+  // ── Prompt token counter (Claude Token Count API) ──
   useEffect(() => {
     const trimmed = input.trim();
 
+    // Only show a count when there is something to send (and we're not already streaming)
     if (!activeId || !trimmed || streaming) {
-      setPromptTokens(null);
-      setPromptTokensError(null);
-      setPromptTokensLoading(false);
-      return;
-    }
-
-    if (disableLivePromptCount) {
       setPromptTokens(null);
       setPromptTokensError(null);
       setPromptTokensLoading(false);
@@ -540,10 +202,9 @@ export default function App() {
             model,
             system,
             messages: [
-              ...(messages || []).filter((m) => !m.streaming && m.content),
+              ...(messagesRef.current || []).filter((m) => !m.streaming && m.content),
               { role: "user", content: trimmed },
             ],
-            enableCompaction,
           };
 
           const data = await apiFetch("/api/count-tokens", {
@@ -554,7 +215,7 @@ export default function App() {
 
           if (tokenCountReqRef.current !== reqId) return;
           setPromptTokens(data.input_tokens);
-        } catch {
+        } catch (err) {
           if (tokenCountReqRef.current !== reqId) return;
           setPromptTokens(null);
           setPromptTokensError("token count failed");
@@ -562,35 +223,17 @@ export default function App() {
           if (tokenCountReqRef.current === reqId) setPromptTokensLoading(false);
         }
       })();
-    }, 700);
+    }, 350);
 
     return () => clearTimeout(timer);
-  }, [
-    input,
-    activeId,
-    model,
-    system,
-    streaming,
-    token,
-    username,
-    messages,
-    disableLivePromptCount,
-    enableCompaction,
-  ]);
+  }, [input, activeId, model, system, streaming, token, username]);
 
-  // ── Theme / scrolling ───────────────────────────────────────────────────────
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("theme", theme);
-  }, [theme]);
+  // ── Theme ──
+  useEffect(() => { document.documentElement.setAttribute("data-theme", theme); localStorage.setItem("theme", theme); }, [theme]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  const toggleTheme = () => setTheme((t) => t === "dark" ? "light" : "dark");
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, compacting]);
-
-  const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
-
-  // ── Load conversations on login ────────────────────────────────────────────
+  // ── Load conversations on login ──
   useEffect(() => {
     if (!token || !username) return;
     loadConversations();
@@ -599,462 +242,202 @@ export default function App() {
   const loadConversations = async () => {
     setLoadingConvos(true);
     try {
-      const data = await apiFetch("/api/conversations", {
-        headers: apiHeaders(token, username),
-      });
+      const data = await apiFetch("/api/conversations", { headers: apiHeaders(token, username) });
       setConvos(data);
       if (data.length > 0) setActiveId(data[0].id);
-    } catch (err) {
-      console.error("Failed to load conversations:", err);
-    }
+    } catch (err) { console.error("Failed to load conversations:", err); }
     setLoadingConvos(false);
   };
 
-  // ── Load messages when switching conversations ─────────────────────────────
+  // ── Load messages when switching conversations ──
   useEffect(() => {
     if (!activeId || msgCache[activeId]) return;
     loadMessages(activeId);
-  }, [activeId, msgCache]);
+  }, [activeId]);
 
   const loadMessages = async (id) => {
     try {
-      const data = await apiFetch(`/api/conversations/${id}`, {
-        headers: apiHeaders(token, username),
-      });
-
+      const data = await apiFetch(`/api/conversations/${id}`, { headers: apiHeaders(token, username) });
       setMsgCache((prev) => ({ ...prev, [id]: data.messages || [] }));
-      setConvos((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, system: data.system, model: data.model } : c))
-      );
-    } catch (err) {
-      console.error("Failed to load messages:", err);
-    }
+      // Also sync any metadata updates
+      setConvos((prev) => prev.map((c) => c.id === id ? { ...c, system: data.system, model: data.model } : c));
+    } catch (err) { console.error("Failed to load messages:", err); }
   };
 
-  // ── Auth ────────────────────────────────────────────────────────────────────
+  // ── Auth ──
   const handleLogin = (t, u) => {
-    sessionStorage.setItem("auth_token", t);
+    sessionStorage.setItem("auth_token",   t);
     sessionStorage.setItem("auth_username", u);
-    setToken(t);
-    setUsername(u);
+    setToken(t); setUsername(u);
   };
-
   const handleLogout = () => {
     sessionStorage.removeItem("auth_token");
     sessionStorage.removeItem("auth_username");
-    setToken("");
-    setUsername("");
-    setConvos([]);
-    setActiveId(null);
-    setMsgCache({});
+    setToken(""); setUsername(""); setConvos([]); setActiveId(null); setMsgCache({});
   };
 
-  // ── Conversations ───────────────────────────────────────────────────────────
+  // ── Conversations ──
   const newChat = async () => {
     const convo = newConvoObj();
     try {
-      await apiFetch("/api/conversations", {
-        method: "POST",
-        headers: apiHeaders(token, username),
-        body: JSON.stringify(convo),
-      });
+      await apiFetch("/api/conversations", { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify(convo) });
       setConvos((prev) => [convo, ...prev]);
       setMsgCache((prev) => ({ ...prev, [convo.id]: [] }));
       setActiveId(convo.id);
       setInput("");
-      setCompacting(false);
-    } catch (err) {
-      console.error("Failed to create conversation:", err);
-    }
+    } catch (err) { console.error("Failed to create conversation:", err); }
   };
 
-  const selectConvo = (id) => {
-    if (streaming) stopStreaming();
-    setActiveId(id);
-    setInput("");
-    setCompacting(false);
-  };
+  const selectConvo = (id) => { if (streaming) stopStreaming(); setActiveId(id); setInput(""); };
 
   const deleteConvo = async (id) => {
     try {
-      await apiFetch(`/api/conversations/${id}`, {
-        method: "DELETE",
-        headers: apiHeaders(token, username),
-      });
-
+      await apiFetch(`/api/conversations/${id}`, { method: "DELETE", headers: apiHeaders(token, username) });
       setConvos((prev) => prev.filter((c) => c.id !== id));
-      setMsgCache((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-
+      setMsgCache((prev) => { const n = { ...prev }; delete n[id]; return n; });
       if (activeId === id) {
         const remaining = convos.filter((c) => c.id !== id);
         setActiveId(remaining.length > 0 ? remaining[0].id : null);
       }
-    } catch (err) {
-      console.error("Failed to delete:", err);
-    }
+    } catch (err) { console.error("Failed to delete:", err); }
   };
 
   const renameConvo = async (id, title) => {
-    setConvos((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)));
-    try {
-      await apiFetch(`/api/conversations/${id}`, {
-        method: "PATCH",
-        headers: apiHeaders(token, username),
-        body: JSON.stringify({ title }),
-      });
-    } catch (err) {
-      console.error("Failed to rename:", err);
-    }
+    setConvos((prev) => prev.map((c) => c.id === id ? { ...c, title } : c));
+    try { await apiFetch(`/api/conversations/${id}`, { method: "PATCH", headers: apiHeaders(token, username), body: JSON.stringify({ title }) }); }
+    catch (err) { console.error("Failed to rename:", err); }
   };
 
   const updateConvoMeta = async (field, value) => {
     if (!activeId) {
+      // No active convo — create one first
       const convo = newConvoObj();
       convo[field] = value;
-
       try {
-        await apiFetch("/api/conversations", {
-          method: "POST",
-          headers: apiHeaders(token, username),
-          body: JSON.stringify(convo),
-        });
+        await apiFetch("/api/conversations", { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify(convo) });
         setConvos((prev) => [convo, ...prev]);
         setMsgCache((prev) => ({ ...prev, [convo.id]: [] }));
         setActiveId(convo.id);
-      } catch (err) {
-        console.error(err);
-      }
+      } catch (err) { console.error(err); }
     } else {
-      setConvos((prev) =>
-        prev.map((c) => (c.id === activeId ? { ...c, [field]: value } : c))
-      );
-      try {
-        await apiFetch(`/api/conversations/${activeId}`, {
-          method: "PATCH",
-          headers: apiHeaders(token, username),
-          body: JSON.stringify({ [field]: value }),
-        });
-      } catch (err) {
-        console.error(err);
-      }
+      setConvos((prev) => prev.map((c) => c.id === activeId ? { ...c, [field]: value } : c));
+      try { await apiFetch(`/api/conversations/${activeId}`, { method: "PATCH", headers: apiHeaders(token, username), body: JSON.stringify({ [field]: value }) }); }
+      catch (err) { console.error(err); }
     }
   };
 
   const clearConversation = async () => {
     if (streaming) stopStreaming();
     if (!activeId) return;
+    // Delete and recreate as fresh
     await deleteConvo(activeId);
     await newChat();
   };
 
-  const deleteMessage = async (msgToDelete) => {
-    if (!activeId || !msgToDelete?.id || streaming) return;
-
-    const currentMessages = msgCache[activeId] || [];
-    const index = currentMessages.findIndex((m) => m.id === msgToDelete.id);
-    if (index === -1) return;
-
-    const idsToRemove = [msgToDelete.id];
-
-    if (msgToDelete.role === "user") {
-      const nextMsg = currentMessages[index + 1];
-      if (nextMsg?.role === "assistant" && nextMsg?.id) {
-        idsToRemove.push(nextMsg.id);
-      }
-    }
-
-    const previousMessages = currentMessages;
-
-    setMsgCache((prev) => ({
-      ...prev,
-      [activeId]: (prev[activeId] || []).filter((m) => !idsToRemove.includes(m.id)),
-    }));
-
-    try {
-      const result = await apiFetch(
-        `/api/conversations/${activeId}/messages/${msgToDelete.id}`,
-        {
-          method: "DELETE",
-          headers: apiHeaders(token, username),
-        }
-      );
-
-      const deletedIds = result?.deleted_ids || idsToRemove;
-
-      setMsgCache((prev) => ({
-        ...prev,
-        [activeId]: (prev[activeId] || []).filter((m) => !deletedIds.includes(m.id)),
-      }));
-
-      setConvos((prev) =>
-        prev.map((c) =>
-          c.id === activeId
-            ? { ...c, updated_at: Date.now() }
-            : c
-        )
-      );
-    } catch (err) {
-      console.error("Failed to delete message:", err);
-
-      setMsgCache((prev) => ({
-        ...prev,
-        [activeId]: previousMessages,
-      }));
-    }
-  };
-
-  // ── Send message ────────────────────────────────────────────────────────────
+  // ── Send message ──
   const sendMessage = useCallback(async () => {
     if (!input.trim() || streaming) return;
 
     let currentId = activeId;
     let currentConvo = activeConvo;
 
+    // Create convo if none active
     if (!currentId) {
       const convo = newConvoObj(DEFAULT_MODEL);
       try {
-        await apiFetch("/api/conversations", {
-          method: "POST",
-          headers: apiHeaders(token, username),
-          body: JSON.stringify(convo),
-        });
+        await apiFetch("/api/conversations", { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify(convo) });
         setConvos((prev) => [convo, ...prev]);
         setMsgCache((prev) => ({ ...prev, [convo.id]: [] }));
         setActiveId(convo.id);
         currentId = convo.id;
         currentConvo = convo;
-      } catch (err) {
-        console.error(err);
-        return;
-      }
+      } catch (err) { console.error(err); return; }
     }
 
     const currentMessages = msgCache[currentId] || [];
     const userMsg = { role: "user", content: input.trim() };
     const newMessages = [...currentMessages, userMsg];
 
-    setMsgCache((prev) => ({
-      ...prev,
-      [currentId]: [...newMessages, { role: "assistant", content: "", streaming: true }],
-    }));
+    // Optimistically update UI
+    setMsgCache((prev) => ({ ...prev, [currentId]: [...newMessages, { role: "assistant", content: "", streaming: true }] }));
 
+    // Auto-title on first message
     if (currentMessages.length === 0) {
       const title = titleFromMessages(newMessages);
-      setConvos((prev) => prev.map((c) => (c.id === currentId ? { ...c, title } : c)));
-      apiFetch(`/api/conversations/${currentId}`, {
-        method: "PATCH",
-        headers: apiHeaders(token, username),
-        body: JSON.stringify({ title }),
-      }).catch(console.error);
+      setConvos((prev) => prev.map((c) => c.id === currentId ? { ...c, title } : c));
+      apiFetch(`/api/conversations/${currentId}`, { method: "PATCH", headers: apiHeaders(token, username), body: JSON.stringify({ title }) }).catch(console.error);
     }
 
     setInput("");
     setStreaming(true);
-    setCompacting(false);
-    setPromptTokens(null);
-    setPromptTokensError(null);
 
     const controller = new AbortController();
     abortRef.current = controller;
 
-    let fullText = "";
-    let usageData = {};
-    let compactionBlocks = [];
-    let doneReceived = false;
+    let fullText = "", usageData = {};
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: apiHeaders(token, username),
-        body: JSON.stringify({
-          messages: newMessages,
-          system: currentConvo?.system || "",
-          model: currentConvo?.model || DEFAULT_MODEL,
-          temperature,
-          max_tokens: maxTokens,
-          enableCompaction,
-        }),
+        body: JSON.stringify({ messages: newMessages, system: currentConvo?.system || "", model: currentConvo?.model || DEFAULT_MODEL, temperature, max_tokens: maxTokens }),
         signal: controller.signal,
       });
-
       if (!res.ok) throw new Error("Request failed");
 
-      const reader = res.body.getReader();
+      const reader  = res.body.getReader();
       const decoder = new TextDecoder();
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-
-        for (const line of chunk.split("\n")) {
+        for (const line of decoder.decode(value).split("\n")) {
           if (!line.startsWith("data: ")) continue;
-
           try {
             const parsed = JSON.parse(line.slice(6));
-
-            if (parsed.type === "compaction_start") {
-              setCompacting(true);
-            }
-
             if (parsed.type === "text") {
-              fullText += parsed.text || "";
-
+              fullText += parsed.text;
               setMsgCache((prev) => {
                 const msgs = [...(prev[currentId] || [])];
-                msgs[msgs.length - 1] = {
-                  role: "assistant",
-                  content: fullText,
-                  streaming: true,
-                };
+                msgs[msgs.length - 1] = { role: "assistant", content: fullText, streaming: true };
                 return { ...prev, [currentId]: msgs };
               });
             }
-
-            if (
-              parsed.type === "compaction" &&
-              typeof parsed.content === "string" &&
-              parsed.content.trim()
-            ) {
-              compactionBlocks.push({ type: "compaction", content: parsed.content });
-              setCompacting(false);
-            }
-
             if (parsed.type === "usage_start") usageData = { ...usageData, ...parsed.usage };
-            if (parsed.type === "usage") usageData = { ...usageData, ...parsed.usage };
-            if (parsed.type === "usage_iterations") {
-              usageData = { ...usageData, iterations: parsed.iterations };
-            }
-
+            if (parsed.type === "usage")       usageData = { ...usageData, ...parsed.usage };
             if (parsed.type === "done") {
-              doneReceived = true;
-              setCompacting(false);
-
-              let finalContent;
-              if (compactionBlocks.length > 0) {
-                finalContent = [...compactionBlocks];
-                if (fullText.trim()) {
-                  finalContent.push({ type: "text", text: fullText });
-                }
-              } else {
-                finalContent = fullText;
-              }
-
-              const prevMessages = msgCache[currentId] || [];
-              let cumulative = 0;
-
-              for (const m of prevMessages) {
-                const totals = getUsageTotals(m.usage);
-                cumulative += totals.input_tokens + totals.output_tokens;
-              }
-
-              const thisTotals = getUsageTotals(usageData);
-              cumulative += thisTotals.input_tokens + thisTotals.output_tokens;
-
-              const assistantMsg = {
-                role: "assistant",
-                content: finalContent,
-                usage: {
-                  ...(usageData || {}),
-                  cumulative_tokens: cumulative,
-                },
-              };
-
+              const assistantMsg = { role: "assistant", content: fullText, usage: usageData };
               setMsgCache((prev) => {
                 const msgs = [...(prev[currentId] || [])];
                 msgs[msgs.length - 1] = assistantMsg;
                 return { ...prev, [currentId]: msgs };
               });
-
+              // Persist sequentially with guaranteed timestamp gap
               const userTs = Date.now();
               const assistantTs = userTs + 1;
-
               try {
-                await apiFetch(`/api/conversations/${currentId}/messages`, {
-                  method: "POST",
-                  headers: apiHeaders(token, username),
-                  body: JSON.stringify({ ...userMsg, created_at: userTs }),
-                });
-
-                await apiFetch(`/api/conversations/${currentId}/messages`, {
-                  method: "POST",
-                  headers: apiHeaders(token, username),
-                  body: JSON.stringify({ ...assistantMsg, created_at: assistantTs }),
-                });
-
-                await loadMessages(currentId);
-              } catch (e) {
-                console.error("Failed to save messages:", e);
-              }
+                await apiFetch(`/api/conversations/${currentId}/messages`, { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify({ ...userMsg, created_at: userTs }) });
+                await apiFetch(`/api/conversations/${currentId}/messages`, { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify({ ...assistantMsg, created_at: assistantTs }) });
+              } catch (e) { console.error("Failed to save messages:", e); }
             }
-
             if (parsed.type === "error") {
-              doneReceived = true;
-              setCompacting(false);
-
-              setMsgCache((prev) => {
-                const msgs = [...(prev[currentId] || [])];
-                msgs[msgs.length - 1] = {
-                  role: "assistant",
-                  content: `⚠️ Error: ${parsed.error}`,
-                  streaming: false,
-                };
-                return { ...prev, [currentId]: msgs };
-              });
+              setMsgCache((prev) => { const msgs = [...(prev[currentId] || [])]; msgs[msgs.length - 1] = { role: "assistant", content: `⚠️ Error: ${parsed.error}`, streaming: false }; return { ...prev, [currentId]: msgs }; });
             }
-          } catch {
-            // skip malformed chunks
-          }
+          } catch { /* skip */ }
         }
       }
-
-      if (!doneReceived) {
-        setCompacting(false);
-      }
     } catch (err) {
-      setCompacting(false);
-
       if (err.name !== "AbortError") {
-        setMsgCache((prev) => {
-          const msgs = [...(prev[currentId] || [])];
-          msgs[msgs.length - 1] = {
-            role: "assistant",
-            content: `⚠️ Error: ${err.message}`,
-            streaming: false,
-          };
-          return { ...prev, [currentId]: msgs };
-        });
+        setMsgCache((prev) => { const msgs = [...(prev[currentId] || [])]; msgs[msgs.length - 1] = { role: "assistant", content: `⚠️ Error: ${err.message}`, streaming: false }; return { ...prev, [currentId]: msgs }; });
       }
-    } finally {
-      setStreaming(false);
-      setCompacting(false);
-      abortRef.current = null;
     }
-  }, [
-    input,
-    msgCache,
-    activeId,
-    activeConvo,
-    streaming,
-    token,
-    username,
-    temperature,
-    maxTokens,
-    enableCompaction,
-  ]);
+    setStreaming(false);
+  }, [input, msgCache, activeId, activeConvo, streaming, token, username, temperature, maxTokens]);
 
   const stopStreaming = () => {
     abortRef.current?.abort();
     setStreaming(false);
-    setCompacting(false);
-
     if (!activeId) return;
-
     setMsgCache((prev) => {
       const msgs = [...(prev[activeId] || [])];
       const last = msgs[msgs.length - 1];
@@ -1063,54 +446,25 @@ export default function App() {
     });
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
+  const handleKeyDown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendMessage(); } };
 
-  if (!token || !username) {
-    return <LoginScreen onLogin={handleLogin} />;
-  }
+  if (!token || !username) return <LoginScreen onLogin={handleLogin} />;
 
   return (
     <div className="app">
       <header className="header">
         <div className="header-left">
-          <button className="sidebar-toggle" onClick={() => setSidebarOpen((v) => !v)}>
-            {sidebarOpen ? "◀" : "▶"}
-          </button>
-          <span className="header-title">
-            <span className="logo-bracket">[</span>
-            WORKBENCH
-            <span className="logo-bracket">]</span>
-          </span>
+          <button className="sidebar-toggle" onClick={() => setSidebarOpen((v) => !v)}>{sidebarOpen ? "◀" : "▶"}</button>
+          <span className="header-title"><span className="logo-bracket">[</span>WORKBENCH<span className="logo-bracket">]</span></span>
           <span className="header-user">@{username}</span>
         </div>
-
         <div className="header-right">
-          <select
-            value={model}
-            onChange={(e) => updateConvoMeta("model", e.target.value)}
-            className="model-select"
-          >
-            {MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
-            ))}
+          <select value={model} onChange={(e) => updateConvoMeta("model", e.target.value)} className="model-select">
+            {MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
           </select>
-
-          <button className="header-btn theme-btn" onClick={toggleTheme} title="toggle theme">
-            {theme === "dark" ? "☀" : "☾"}
-          </button>
-          <button className="header-btn clear-btn" onClick={clearConversation}>
-            clear
-          </button>
-          <button className="header-btn logout-btn" onClick={handleLogout}>
-            logout
-          </button>
+          <button className="header-btn theme-btn"           onClick={toggleTheme}       title="toggle theme">{theme === "dark" ? "☀" : "☾"}</button>
+          <button className="header-btn clear-btn"           onClick={clearConversation}>clear</button>
+          <button className="header-btn logout-btn"          onClick={handleLogout}>logout</button>
         </div>
       </header>
 
@@ -1119,29 +473,14 @@ export default function App() {
           <aside className="sidebar">
             <div className="sidebar-section convo-section">
               <div className="convo-section-header">
-                <p className="section-label" style={{ marginBottom: 0 }}>
-                  conversations
-                </p>
-                <button className="new-chat-sidebar-btn" onClick={newChat}>
-                  + new
-                </button>
+                <p className="section-label" style={{marginBottom: 0}}>conversations</p>
+                <button className="new-chat-sidebar-btn" onClick={newChat}>+ new</button>
               </div>
-
               {loadingConvos && <p className="convo-empty">loading...</p>}
-              {!loadingConvos && convos.length === 0 && (
-                <p className="convo-empty">no conversations yet</p>
-              )}
-
+              {!loadingConvos && convos.length === 0 && <p className="convo-empty">no conversations yet</p>}
               <div className="convo-list">
                 {convos.map((c) => (
-                  <ConvoItem
-                    key={c.id}
-                    convo={c}
-                    active={c.id === activeId}
-                    onSelect={selectConvo}
-                    onDelete={deleteConvo}
-                    onRename={renameConvo}
-                  />
+                  <ConvoItem key={c.id} convo={c} active={c.id === activeId} onSelect={selectConvo} onDelete={deleteConvo} onRename={renameConvo} />
                 ))}
               </div>
             </div>
@@ -1150,48 +489,21 @@ export default function App() {
               <button className="section-toggle" onClick={() => setSystemOpen((v) => !v)}>
                 system prompt {systemOpen ? "▾" : "▸"}
               </button>
-
               {systemOpen && (
-                <textarea
-                  className="system-textarea"
-                  placeholder="You are a helpful assistant..."
-                  value={system}
-                  onChange={(e) => updateConvoMeta("system", e.target.value)}
-                />
+                <textarea className="system-textarea" placeholder="You are a helpful assistant..." value={system}
+                  onChange={(e) => updateConvoMeta("system", e.target.value)} />
               )}
             </div>
 
             <div className="sidebar-section">
               <p className="section-label">parameters</p>
-
               <div className="param-row">
-                <label>
-                  temperature <span className="param-value">{temperature}</span>
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={temperature}
-                  onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                  className="slider"
-                />
+                <label>temperature <span className="param-value">{temperature}</span></label>
+                <input type="range" min="0" max="1" step="0.01" value={temperature} onChange={(e) => setTemperature(parseFloat(e.target.value))} className="slider" />
               </div>
-
               <div className="param-row">
-                <label>
-                  max tokens <span className="param-value">{maxTokens.toLocaleString()}</span>
-                </label>
-                <input
-                  type="range"
-                  min="256"
-                  max="32000"
-                  step="256"
-                  value={maxTokens}
-                  onChange={(e) => setMaxTokens(parseInt(e.target.value))}
-                  className="slider"
-                />
+                <label>max tokens <span className="param-value">{maxTokens.toLocaleString()}</span></label>
+                <input type="range" min="256" max="32000" step="256" value={maxTokens} onChange={(e) => setMaxTokens(parseInt(e.target.value))} className="slider" />
               </div>
             </div>
 
@@ -1199,12 +511,8 @@ export default function App() {
               <p className="section-label">active features</p>
               <div className="badge-list">
                 <span className="badge">context-1m</span>
-                <span className="badge">{enableCompaction ? "compact:on" : "compact:off"}</span>
+                <span className="badge">compact</span>
                 <span className="badge">cache_control</span>
-                <span className="badge">msgs {messages.length}</span>
-                <span className="badge">
-                  1M {contextUsagePercent.toFixed(1)}% ({contextUsageTokens.toLocaleString()})
-                </span>
               </div>
             </div>
           </aside>
@@ -1218,72 +526,21 @@ export default function App() {
                 <p className="empty-hint">⌘↵ or Ctrl↵ to send</p>
               </div>
             )}
-
-            {messages.map((msg, i) => (
-              <Message
-                key={msg.id ?? `${msg.role}-${i}`}
-                msg={msg}
-                onDelete={deleteMessage}
-              />
-            ))}
-
-            {streaming && compacting && <CompactionIndicator />}
-
-            {streaming && messages[messages.length - 1]?.streaming && !compacting && (
-              <div className="streaming-indicator">
-                <span />
-                <span />
-                <span />
-              </div>
-            )}
-
+            {messages.map((msg, i) => <Message key={i} msg={msg} />)}
+            {streaming && messages[messages.length - 1]?.streaming && <div className="streaming-indicator"><span /><span /><span /></div>}
             <div ref={bottomRef} />
           </div>
 
           <div className="input-area">
-            <textarea
-              className="chat-input"
-              placeholder="send a message..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              rows={3}
-              disabled={streaming}
-            />
-
+            <textarea className="chat-input" placeholder="send a message..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} rows={3} disabled={streaming} />
             <div className="input-actions">
               <span className="input-hint">⌘↵ to send</span>
-
-              <span
-                className={`token-count ${nearingLimit ? "token-count-warning" : ""}`}
-                title="Claude input tokens for what will be sent"
-              >
-                {disableLivePromptCount
-                  ? approxInputTokens !== null
-                    ? `~${approxInputTokens} input tokens`
-                    : ""
-                  : promptTokensLoading
-                    ? "counting…"
-                    : promptTokens !== null
-                      ? `${promptTokens.toLocaleString()} tokens`
-                      : ""}
+              <span className="token-count" title="Claude input tokens for what will be sent">
+                {promptTokensLoading ? "counting…" : (promptTokens !== null ? `${promptTokens} tokens` : "")}
               </span>
-
-              {nearingLimit && <span className="token-warning">⚠ nearing 1M limit</span>}
-
-              {promptTokensError && !disableLivePromptCount && (
-                <span className="token-count-error">{promptTokensError}</span>
-              )}
-
-              {streaming ? (
-                <button className="stop-btn" onClick={stopStreaming}>
-                  ◼ stop
-                </button>
-              ) : (
-                <button className="send-btn" onClick={sendMessage} disabled={!input.trim()}>
-                  send ↵
-                </button>
-              )}
+              {streaming
+                ? <button className="stop-btn" onClick={stopStreaming}>◼ stop</button>
+                : <button className="send-btn" onClick={sendMessage} disabled={!input.trim()}>send ↵</button>}
             </div>
           </div>
         </main>
