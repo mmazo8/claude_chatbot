@@ -202,6 +202,7 @@ export default function App() {
 
   const bottomRef = useRef(null);
   const abortRef  = useRef(null);
+  const sendingRef = useRef(false);
 
   const activeConvo    = convos.find((c) => c.id === activeId) || null;
   const messages       = msgCache[activeId] || [];
@@ -462,68 +463,74 @@ export default function App() {
 
   // ── Send message ──
   const sendMessage = useCallback(async () => {
+    if (sendingRef.current) return;
     if ((!input.trim() && pendingFiles.length === 0) || streaming) return;
+
+    sendingRef.current = true;
+    setStreaming(true);
 
     let currentId = activeId;
     let currentConvo = activeConvo;
 
-    // Create convo if none active
-    if (!currentId) {
-      const convo = newConvoObj(DEFAULT_MODEL);
-      try {
-        await apiFetch("/api/conversations", { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify(convo) });
-        setConvos((prev) => [convo, ...prev]);
-        setMsgCache((prev) => ({ ...prev, [convo.id]: [] }));
-        setActiveId(convo.id);
-        currentId = convo.id;
-        currentConvo = convo;
-      } catch (err) { console.error(err); return; }
-    }
-
-    const currentMessages = msgCache[currentId] || [];
-    const filesToUpload = [...pendingFiles];
-    const textContent = input.trim();
-
-    // Build the display message (what user sees in UI)
-    let uploadedFileMeta = [];
-    if (filesToUpload.length > 0) {
-      try {
-        uploadedFileMeta = await uploadFiles(currentId, filesToUpload);
-      } catch (err) {
-        console.error("File upload failed:", err);
-        return;
-      }
-    }
-
-    // Build user message for display
-    const userMsg = {
-      role: "user",
-      content: textContent || "(files attached)",
-      files: uploadedFileMeta.length > 0 ? uploadedFileMeta : undefined,
-    };
-    const newMessages = [...currentMessages, userMsg];
-
-    // Optimistically update UI
-    setMsgCache((prev) => ({ ...prev, [currentId]: [...newMessages, { role: "assistant", content: "", streaming: true }] }));
-    setPendingFiles([]);
-
-    // Auto-title on first message
-    if (currentMessages.length === 0) {
-      const title = titleFromMessages(newMessages);
-      setConvos((prev) => prev.map((c) => c.id === currentId ? { ...c, title } : c));
-      apiFetch(`/api/conversations/${currentId}`, { method: "PATCH", headers: apiHeaders(token, username), body: JSON.stringify({ title }) }).catch(console.error);
-    }
-
-    // Clear draft for this conversation
-    setDraftCache((prev) => ({ ...prev, [currentId]: "" }));
-    setStreaming(true);
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    let fullText = "", usageData = {};
-
     try {
+      // Create convo if none active
+      if (!currentId) {
+        const convo = newConvoObj(DEFAULT_MODEL);
+        try {
+          await apiFetch("/api/conversations", { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify(convo) });
+          setConvos((prev) => [convo, ...prev]);
+          setMsgCache((prev) => ({ ...prev, [convo.id]: [] }));
+          setActiveId(convo.id);
+          currentId = convo.id;
+          currentConvo = convo;
+        } catch (err) {
+          console.error(err);
+          return;
+        }
+      }
+
+      const currentMessages = msgCache[currentId] || [];
+      const filesToUpload = [...pendingFiles];
+      const textContent = input.trim();
+
+      // Build the display message (what user sees in UI)
+      let uploadedFileMeta = [];
+      if (filesToUpload.length > 0) {
+        try {
+          uploadedFileMeta = await uploadFiles(currentId, filesToUpload);
+        } catch (err) {
+          console.error("File upload failed:", err);
+          return;
+        }
+      }
+
+      // Build user message for display
+      const userMsg = {
+        role: "user",
+        content: textContent || "(files attached)",
+        files: uploadedFileMeta.length > 0 ? uploadedFileMeta : undefined,
+      };
+      const newMessages = [...currentMessages, userMsg];
+
+      // Optimistically update UI
+      setMsgCache((prev) => ({ ...prev, [currentId]: [...newMessages, { role: "assistant", content: "", streaming: true }] }));
+      setPendingFiles([]);
+
+      // Auto-title on first message
+      if (currentMessages.length === 0) {
+        const title = titleFromMessages(newMessages);
+        setConvos((prev) => prev.map((c) => c.id === currentId ? { ...c, title } : c));
+        apiFetch(`/api/conversations/${currentId}`, { method: "PATCH", headers: apiHeaders(token, username), body: JSON.stringify({ title }) }).catch(console.error);
+      }
+
+      // Clear draft for this conversation
+      setDraftCache((prev) => ({ ...prev, [currentId]: "" }));
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      let fullText = "", usageData = {};
+
       // Build the API message content — if files were uploaded, include their content blocks
       let apiContent;
       if (uploadedFileMeta.length > 0) {
@@ -599,10 +606,11 @@ export default function App() {
       if (err.name !== "AbortError") {
         setMsgCache((prev) => { const msgs = [...(prev[currentId] || [])]; msgs[msgs.length - 1] = { role: "assistant", content: `⚠️ Error: ${err.message}`, streaming: false }; return { ...prev, [currentId]: msgs }; });
       }
+    } finally {
+      sendingRef.current = false;
+      setStreaming(false);
     }
-    setStreaming(false);
   }, [input, pendingFiles, msgCache, activeId, activeConvo, streaming, token, username, temperature, maxTokens]);
-
   const stopStreaming = () => {
     abortRef.current?.abort();
     setStreaming(false);
