@@ -1337,26 +1337,32 @@ body,
 
 /* Generic file chip */
 .file-chip {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 5px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    padding: 4px 10px;
+    gap: 10px;
+
+    padding: 8px 12px;
+    /* bigger */
+    min-height: 36px;
+    /* taller */
+
+    background: var(--bg3);
+    border: 1px solid var(--border2);
     border-radius: var(--radius);
-    max-width: 220px;
-    line-height: 1.4;
+
+    max-width: 100%;
 }
 
 .file-chip-icon {
-    flex-shrink: 0;
-    font-size: 12px;
+    display: none;
 }
 
 .file-chip-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 13px;
+    flex: 1;
 }
 
 /* Pending chip (removable, before send) */
@@ -1393,11 +1399,11 @@ body,
 .file-dl-btn {
     flex-shrink: 0;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: 0.04em;
     color: var(--blue);
     text-decoration: none;
-    padding: 2px 8px;
+    padding: 4px 8px;
     margin-left: 4px;
     border: 1px solid var(--token-in-border);
     border-radius: var(--radius);
@@ -1426,7 +1432,7 @@ body,
 .message-files {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 8px;
     margin-bottom: 8px;
 }
 
@@ -1497,8 +1503,10 @@ body,
 }
 
 .files-panel-chip {
-    width: 100%;
-    margin-bottom: 3px;
+    padding: 10px 14px;
+    /* slightly bigger than chat */
+    min-height: 40px;
+    font-size: 14px;
 }
 
 .file-chip-size {
@@ -1506,4 +1514,12 @@ body,
     font-size: 9px;
     color: var(--text3);
     margin-left: auto;
+}
+
+.files-panel .file-chip-name {
+    white-space: normal;
+    /* allow wrapping in panel */
+    overflow: visible;
+    text-overflow: unset;
+    line-height: 1.4;
 }
