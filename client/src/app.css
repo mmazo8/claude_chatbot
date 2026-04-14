@@ -1523,3 +1523,23 @@ body,
     text-overflow: unset;
     line-height: 1.4;
 }
+
+.system-upload-btn {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: var(--text3);
+    background: none;
+    border: 1px dashed var(--border2);
+    border-radius: var(--radius);
+    padding: 5px 0;
+    margin-top: 6px;
+    width: 100%;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.system-upload-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}

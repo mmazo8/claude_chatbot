@@ -176,6 +176,7 @@ export default function App() {
   // Pending files staged for the next message
   const [pendingFiles, setPendingFiles] = useState([]);
   const fileInputRef = useRef(null);
+  const systemFileInputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
 
   // Files panel
@@ -433,6 +434,34 @@ export default function App() {
     if (bytes < 1024) return bytes + " B";
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  };
+
+  const handleSystemFileUpload = (e) => {
+    const files = Array.from(e.target.files);
+    e.target.value = "";
+    if (files.length === 0) return;
+
+    const binaryTypes = /^(image\/|application\/pdf|application\/zip|audio\/|video\/)/;
+    let appended = "";
+
+    let remaining = files.length;
+    files.forEach((file) => {
+      if (binaryTypes.test(file.type)) {
+        remaining--;
+        if (remaining === 0 && appended) updateConvoMeta("system", (system ? system + "\n\n" : "") + appended.trim());
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        appended += `<file name="${file.name}">\n${reader.result}\n</file>\n\n`;
+        remaining--;
+        if (remaining === 0) {
+          updateConvoMeta("system", (system ? system + "\n\n" : "") + appended.trim());
+        }
+      };
+      reader.readAsText(file);
+    });
   };
 
   const loadAllFiles = async () => {
@@ -693,8 +722,12 @@ export default function App() {
                 system prompt {systemOpen ? "▾" : "▸"}
               </button>
               {systemOpen && (
-                <textarea className="system-textarea" placeholder="You are a helpful assistant..." value={system}
-                  onChange={(e) => updateConvoMeta("system", e.target.value)} />
+                <>
+                  <textarea className="system-textarea" placeholder="You are a helpful assistant..." value={system}
+                    onChange={(e) => updateConvoMeta("system", e.target.value)} />
+                  <input type="file" ref={systemFileInputRef} multiple style={{ display: "none" }} accept=".txt,.md,.json,.csv,.js,.jsx,.ts,.tsx,.py,.html,.css,.xml,.yaml,.yml,.toml,.sql,.sh,.env,.log,.conf,.cfg,.ini,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp" onChange={handleSystemFileUpload} />
+                  <button className="system-upload-btn" onClick={() => systemFileInputRef.current?.click()} title="Upload file contents into system prompt">+ add file</button>
+                </>
               )}
             </div>
 
