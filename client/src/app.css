@@ -1252,3 +1252,166 @@ body,
 .delete-btn-confirm {
     color: #ff6b6b;
 }
+
+/* ── File Upload ────────────────────────────────────────────────────────────── */
+
+/* Drag-and-drop overlay */
+.drop-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 100;
+    background: rgba(200, 169, 110, 0.08);
+    border: 2px dashed var(--accent);
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.drop-overlay p {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    background: var(--bg2);
+    padding: 10px 24px;
+    border-radius: var(--radius);
+    border: 1px solid var(--accent);
+}
+
+.chat-area {
+    position: relative;
+}
+
+/* Input row — attach button + textarea side by side */
+.input-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.input-row .chat-input {
+    margin-bottom: 0;
+    flex: 1;
+}
+
+.attach-btn {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    margin-top: 2px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    color: var(--text2);
+    font-size: 20px;
+    font-family: var(--font-mono);
+    border-radius: var(--radius);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    line-height: 1;
+}
+
+.attach-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--bg2);
+}
+
+.attach-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* Pending files (staged before send) */
+.pending-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+/* Generic file chip */
+.file-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: var(--radius);
+    max-width: 220px;
+    line-height: 1.4;
+}
+
+.file-chip-icon {
+    flex-shrink: 0;
+    font-size: 12px;
+}
+
+.file-chip-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Pending chip (removable, before send) */
+.file-chip.pending {
+    background: var(--badge-bg);
+    border: 1px solid var(--badge-border);
+    color: var(--accent);
+}
+
+.file-chip-remove {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--text3);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 0 2px;
+    line-height: 1;
+    font-family: var(--font-sans);
+    transition: color 0.15s;
+}
+
+.file-chip-remove:hover {
+    color: var(--red);
+}
+
+/* Attached chip (on sent messages, downloadable) */
+.file-chip.attached {
+    background: var(--token-in-bg);
+    border: 1px solid var(--token-in-border);
+    color: var(--blue);
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.file-chip.attached:hover {
+    border-color: var(--blue);
+    background: rgba(91, 155, 213, 0.08);
+}
+
+.file-chip-dl {
+    flex-shrink: 0;
+    font-size: 11px;
+    opacity: 0.6;
+}
+
+.file-chip.attached:hover .file-chip-dl {
+    opacity: 1;
+}
+
+/* Files row inside a message bubble */
+.message-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}

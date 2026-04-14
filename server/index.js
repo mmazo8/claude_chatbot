@@ -2,8 +2,11 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
+import fs from "fs";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 import pg from "pg";
+import multer from "multer";
 
 dotenv.config();
 
@@ -13,6 +16,20 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 const CLIENT_DIST = path.resolve(__dirname, "../client/dist");
+
+// ── File upload setup ────────────────────────────────────────────────────────
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.resolve(__dirname, "../uploads");
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const unique = crypto.randomUUID();
+    const ext = path.extname(file.originalname);
+    cb(null, `${unique}${ext}`);
+  },
+});
+const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB
 
 // ── Database setup ────────────────────────────────────────────────────────────
 const pool = new pg.Pool({
@@ -46,6 +63,19 @@ async function initDB() {
 
     CREATE INDEX IF NOT EXISTS idx_conversations_username ON conversations(username);
     CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
+
+    CREATE TABLE IF NOT EXISTS files (
+      id              TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      username        TEXT NOT NULL,
+      original_name   TEXT NOT NULL,
+      stored_name     TEXT NOT NULL,
+      mime_type       TEXT NOT NULL,
+      size_bytes      BIGINT NOT NULL,
+      created_at      BIGINT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_files_conversation_id ON files(conversation_id);
   `);
 
   console.log("Database initialized");
@@ -55,7 +85,7 @@ console.log("NODE_ENV:", process.env.NODE_ENV);
 console.log("PORT:", PORT);
 console.log("CLIENT_DIST:", CLIENT_DIST);
 
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "100mb" }));
 app.use(
   cors({
     origin:
@@ -93,6 +123,15 @@ function sanitizeContent(content) {
           : null;
       }
 
+      // Pass through image and document blocks (for file attachments)
+      if (block.type === "image" && block.source) {
+        return block;
+      }
+
+      if (block.type === "document" && block.source) {
+        return block;
+      }
+
       return null;
     })
     .filter(Boolean);
@@ -114,6 +153,13 @@ app.use(express.static(CLIENT_DIST));
 app.use((req, res, next) => {
   if (!req.path.startsWith("/api")) return next();
   if (req.path === "/api/auth") return next();
+  // File downloads use token query param for browser-direct access
+  if (req.path.startsWith("/api/files/") && req.method === "GET" && req.query.token) {
+    if (req.query.token !== process.env.APP_PASSWORD) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    return next();
+  }
 
   const token = req.headers["x-auth-token"];
   if (!token || token !== process.env.APP_PASSWORD) {
@@ -397,6 +443,164 @@ app.delete("/api/conversations/:id/messages/:messageId", async (req, res) => {
   }
 });
 
+// ── File upload ──────────────────────────────────────────────────────────────
+app.post("/api/conversations/:id/files", upload.array("files", 10), async (req, res) => {
+  const username = req.headers["x-username"];
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  const conversationId = req.params.id;
+
+  try {
+    // Verify conversation belongs to user
+    const convo = await pool.query(
+      "SELECT id FROM conversations WHERE id = $1 AND username = $2",
+      [conversationId, username]
+    );
+    if (convo.rows.length === 0) {
+      // Clean up uploaded files
+      for (const f of req.files) fs.unlinkSync(f.path);
+      return res.status(404).json({ error: "Conversation not found" });
+    }
+
+    const results = [];
+    for (const f of req.files) {
+      const fileId = crypto.randomUUID();
+      const now = Date.now();
+      await pool.query(
+        "INSERT INTO files (id, conversation_id, username, original_name, stored_name, mime_type, size_bytes, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+        [fileId, conversationId, username, f.originalname, f.filename, f.mimetype, f.size, now]
+      );
+      results.push({
+        id: fileId,
+        original_name: f.originalname,
+        mime_type: f.mimetype,
+        size_bytes: f.size,
+        created_at: now,
+      });
+    }
+
+    res.json({ success: true, files: results });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Upload failed" });
+  }
+});
+
+// GET list files for a conversation
+app.get("/api/conversations/:id/files", async (req, res) => {
+  const username = req.headers["x-username"];
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  try {
+    const result = await pool.query(
+      "SELECT id, original_name, mime_type, size_bytes, created_at FROM files WHERE conversation_id = $1 AND username = $2 ORDER BY created_at ASC",
+      [req.params.id, username]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+// GET download a file
+app.get("/api/files/:fileId", async (req, res) => {
+  const username = req.headers["x-username"] || req.query.username;
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  try {
+    const result = await pool.query(
+      "SELECT * FROM files WHERE id = $1 AND username = $2",
+      [req.params.fileId, username]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: "Not found" });
+
+    const file = result.rows[0];
+    const filePath = path.join(UPLOAD_DIR, file.stored_name);
+
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File missing from disk" });
+
+    res.setHeader("Content-Disposition", `attachment; filename="${file.original_name}"`);
+    res.setHeader("Content-Type", file.mime_type);
+    fs.createReadStream(filePath).pipe(res);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Download failed" });
+  }
+});
+
+// POST get base64 content for files (used when sending to Claude)
+app.post("/api/files/content", async (req, res) => {
+  const username = req.headers["x-username"];
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  const { fileIds } = req.body;
+  if (!Array.isArray(fileIds) || fileIds.length === 0) {
+    return res.status(400).json({ error: "fileIds required" });
+  }
+
+  try {
+    const result = await pool.query(
+      "SELECT id, stored_name, original_name, mime_type FROM files WHERE id = ANY($1::text[]) AND username = $2",
+      [fileIds, username]
+    );
+
+    const contents = [];
+    for (const file of result.rows) {
+      const filePath = path.join(UPLOAD_DIR, file.stored_name);
+      if (!fs.existsSync(filePath)) continue;
+
+      const data = fs.readFileSync(filePath);
+      const base64 = data.toString("base64");
+
+      // Determine Anthropic content block type
+      const isImage = /^image\/(jpeg|png|gif|webp)$/i.test(file.mime_type);
+      const isPdf = file.mime_type === "application/pdf";
+
+      if (isImage) {
+        contents.push({
+          id: file.id,
+          original_name: file.original_name,
+          block: {
+            type: "image",
+            source: { type: "base64", media_type: file.mime_type, data: base64 },
+          },
+        });
+      } else if (isPdf) {
+        contents.push({
+          id: file.id,
+          original_name: file.original_name,
+          block: {
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: base64 },
+          },
+        });
+      } else {
+        // For text-based files, read as text and include as a text block
+        let textContent;
+        try {
+          textContent = data.toString("utf-8");
+        } catch {
+          textContent = `[Binary file: ${file.original_name}]`;
+        }
+        contents.push({
+          id: file.id,
+          original_name: file.original_name,
+          block: {
+            type: "text",
+            text: `<file name="${file.original_name}">\n${textContent}\n</file>`,
+          },
+        });
+      }
+    }
+
+    res.json({ contents });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to read files" });
+  }
+});
+
 function buildAnthropicRequestBody({
   messages,
   system,
@@ -425,6 +629,26 @@ function buildAnthropicRequestBody({
             return block;
           });
 
+          return { role: msg.role, content: blocks };
+        }
+
+        // Check if there are non-text blocks (image, document)
+        const hasFileBlocks = cleanedContent.some(
+          (b) => b.type === "image" || b.type === "document"
+        );
+
+        if (hasFileBlocks) {
+          // Keep all blocks as-is, add cache_control to last text block if last user
+          const blocks = cleanedContent.map((block) => ({ ...block }));
+          if (isLastUser && blocks.length > 0) {
+            // Add cache_control to the last text block
+            for (let j = blocks.length - 1; j >= 0; j--) {
+              if (blocks[j].type === "text") {
+                blocks[j].cache_control = { type: "ephemeral" };
+                break;
+              }
+            }
+          }
           return { role: msg.role, content: blocks };
         }
 

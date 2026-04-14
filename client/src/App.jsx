@@ -1,560 +1,939 @@
-import { useState, useRef, useEffect, useCallback, memo } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import "./app.css";
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import path from "path";
+import fs from "fs";
+import crypto from "crypto";
+import { fileURLToPath } from "url";
+import pg from "pg";
+import multer from "multer";
 
-const MODELS = [
-  { id: "claude-opus-4-6",    label: "Claude Opus 4.6 (1M ctx)" },
-  { id: "claude-sonnet-4-6",  label: "Claude Sonnet 4.6 (1M ctx)" },
-  { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
-];
-const DEFAULT_MODEL     = MODELS[0].id;
-const DEFAULT_MAX_TOKENS = 32000;
+dotenv.config();
 
-// ── API helpers TEST───────────────────────────────────────────────────────────────
-function apiHeaders(token, username) {
-  return { "Content-Type": "application/json", "x-auth-token": token, "x-username": username };
-}
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-async function apiFetch(url, opts = {}) {
-  const res = await fetch(url, opts);
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  return res.json();
-}
+const app = express();
+const PORT = process.env.PORT || 3001;
+const CLIENT_DIST = path.resolve(__dirname, "../client/dist");
 
-function newConvoObj(model = DEFAULT_MODEL) {
-  return {
-    id: Date.now().toString(),
-    title: "New conversation",
-    model,
-    system: "",
-    created_at: Date.now(),
-    updated_at: Date.now(),
-    messages: [],
-  };
-}
+// ── File upload setup ────────────────────────────────────────────────────────
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.resolve(__dirname, "../uploads");
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-function titleFromMessages(messages) {
-  const first = messages.find((m) => m.role === "user");
-  if (!first) return "New conversation";
-  const text = typeof first.content === "string" ? first.content : "";
-  return text.slice(0, 40) + (text.length > 40 ? "…" : "");
-}
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const unique = crypto.randomUUID();
+    const ext = path.extname(file.originalname);
+    cb(null, `${unique}${ext}`);
+  },
+});
+const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB
 
-// ── Login Screen ──────────────────────────────────────────────────────────────
-function LoginScreen({ onLogin }) {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError]       = useState("");
-  const [loading, setLoading]   = useState(false);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault(); setLoading(true); setError("");
-    try {
-      const res  = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password, username }) });
-      const data = await res.json();
-      if (data.success) onLogin(data.token, data.username);
-      else setError(data.error || "Invalid credentials");
-    } catch { setError("Connection error"); }
-    setLoading(false);
-  };
-
-  return (
-    <div className="login-screen">
-      <div className="login-box">
-        <div className="login-logo"><span className="logo-bracket">[</span><span className="logo-text">WORKBENCH</span><span className="logo-bracket">]</span></div>
-        <p className="login-sub">Claude API Interface</p>
-        <form onSubmit={handleSubmit} className="login-form">
-          <input type="text"     placeholder="username"  value={username}  onChange={(e) => setUsername(e.target.value)}  className="login-input" autoFocus />
-          <input type="password" placeholder="password"  value={password}  onChange={(e) => setPassword(e.target.value)}  className="login-input" />
-          {error && <p className="login-error">{error}</p>}
-          <button type="submit" className="login-btn" disabled={loading}>{loading ? "authenticating..." : "enter"}</button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ── Token Counter ─────────────────────────────────────────────────────────────
-function TokenDisplay({ usage }) {
-  if (!usage) return null;
-  return (
-    <div className="token-display">
-      {usage.input_tokens        != null && <span className="token-chip input">↑ {usage.input_tokens.toLocaleString()}</span>}
-      {usage.output_tokens       != null && <span className="token-chip output">↓ {usage.output_tokens.toLocaleString()}</span>}
-      {usage.cache_read_input_tokens  > 0 && <span className="token-chip cache-read">⚡ {usage.cache_read_input_tokens.toLocaleString()} cached</span>}
-      {usage.cache_creation_input_tokens > 0 && <span className="token-chip cache-write">📝 {usage.cache_creation_input_tokens.toLocaleString()} written</span>}
-    </div>
-  );
-}
-
-// ── Message Bubble ────────────────────────────────────────────────────────────
-const Message = memo(function Message({ msg }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => { navigator.clipboard.writeText(msg.content); setCopied(true); setTimeout(() => setCopied(false), 1500); };
-  return (
-    <div className={`message message-${msg.role}`}>
-      <div className="message-header">
-        <span className="message-role">{msg.role === "user" ? "you" : "claude"}</span>
-        {msg.role === "assistant" && <button className="copy-btn" onClick={copy}>{copied ? "copied!" : "copy"}</button>}
-      </div>
-      <div className="message-content">
-        {msg.role === "assistant"
-          ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-          : <p style={{ whiteSpace: "pre-wrap" }}>{msg.content}</p>}
-      </div>
-      {msg.usage && <TokenDisplay usage={msg.usage} />}
-    </div>
-  );
+// ── Database setup ────────────────────────────────────────────────────────────
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL?.includes("railway")
+    ? { rejectUnauthorized: false }
+    : false,
 });
 
-// ── Conversation List Item ────────────────────────────────────────────────────
-function ConvoItem({ convo, active, onSelect, onDelete, onRename }) {
-  const [confirm, setConfirm] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [editVal, setEditVal] = useState(convo.title);
-  const inputRef = useRef(null);
-  // Coerce to number so Postgres string timestamps don't produce "Invalid Date"
-  const date = new Date(Number(convo.updated_at)).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      id          TEXT PRIMARY KEY,
+      username    TEXT NOT NULL,
+      title       TEXT NOT NULL DEFAULT 'New conversation',
+      model       TEXT NOT NULL,
+      system      TEXT NOT NULL DEFAULT '',
+      created_at  BIGINT NOT NULL,
+      updated_at  BIGINT NOT NULL
+    );
 
-  const startEdit = (e) => { e.stopPropagation(); setEditVal(convo.title); setEditing(true); setTimeout(() => inputRef.current?.focus(), 0); };
-  const commitEdit = () => { if (editVal.trim()) onRename(convo.id, editVal.trim()); setEditing(false); };
-  const editKeyDown = (e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditing(false); };
+    CREATE TABLE IF NOT EXISTS messages (
+      id              SERIAL PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      username        TEXT NOT NULL,
+      role            TEXT NOT NULL,
+      content         TEXT NOT NULL,
+      usage           JSONB,
+      created_at      BIGINT NOT NULL
+    );
 
-  return (
-    <div className={`convo-item ${active ? "convo-active" : ""}`} onClick={() => !editing && onSelect(convo.id)}>
-      <div className="convo-item-body">
-        {editing
-          ? <input ref={inputRef} className="convo-rename-input" value={editVal} onChange={(e) => setEditVal(e.target.value)} onBlur={commitEdit} onKeyDown={editKeyDown} onClick={(e) => e.stopPropagation()} />
-          : <span className="convo-title" onDoubleClick={startEdit} title="Double-click to rename">{convo.title}</span>}
-        <span className="convo-date">{date}</span>
-      </div>
-      {!editing && (confirm
-        ? <div className="convo-confirm" onClick={(e) => e.stopPropagation()}>
-            <button className="convo-confirm-yes" onClick={() => onDelete(convo.id)}>delete</button>
-            <button className="convo-confirm-no"  onClick={() => setConfirm(false)}>cancel</button>
-          </div>
-        : <div className="convo-actions" onClick={(e) => e.stopPropagation()}>
-            <button className="convo-action-btn"              onClick={startEdit}           title="Rename">✎</button>
-            <button className="convo-action-btn convo-delete" onClick={() => setConfirm(true)} title="Delete">✕</button>
-          </div>
-      )}
-    </div>
-  );
+    CREATE INDEX IF NOT EXISTS idx_conversations_username ON conversations(username);
+    CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
+
+    CREATE TABLE IF NOT EXISTS files (
+      id              TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      username        TEXT NOT NULL,
+      original_name   TEXT NOT NULL,
+      stored_name     TEXT NOT NULL,
+      mime_type       TEXT NOT NULL,
+      size_bytes      BIGINT NOT NULL,
+      created_at      BIGINT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_files_conversation_id ON files(conversation_id);
+  `);
+
+  console.log("Database initialized");
 }
 
-// ── Main App ──────────────────────────────────────────────────────────────────
-export default function App() {
-  const [token,    setToken]    = useState(() => sessionStorage.getItem("auth_token")   || "");
-  const [username, setUsername] = useState(() => sessionStorage.getItem("auth_username") || "");
-  const [convos,   setConvos]   = useState([]);
-  const [activeId, setActiveId] = useState(null);
-  const [loadingConvos, setLoadingConvos] = useState(false);
+console.log("NODE_ENV:", process.env.NODE_ENV);
+console.log("PORT:", PORT);
+console.log("CLIENT_DIST:", CLIENT_DIST);
 
-  // Per-conversation message cache { [id]: Message[] }
-  const [msgCache, setMsgCache] = useState({});
+app.use(express.json({ limit: "100mb" }));
+app.use(
+  cors({
+    origin:
+      process.env.NODE_ENV === "production" ? false : "http://localhost:5173",
+  })
+);
 
-  // Per-conversation unsent draft cache { [id]: string }
-  const [draftCache, setDraftCache] = useState({});
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
 
-  const input    = activeId ? (draftCache[activeId] ?? "") : "";
-  const setInput = (val) => {
-    if (!activeId) return;
-    setDraftCache((prev) => ({ ...prev, [activeId]: typeof val === "function" ? val(prev[activeId] ?? "") : val }));
+function sanitizeContent(content) {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  const cleaned = content
+    .map((block) => {
+      if (!block || typeof block !== "object") return null;
+
+      if (block.type === "text") {
+        return isNonEmptyString(block.text)
+          ? { type: "text", text: block.text }
+          : null;
+      }
+
+      if (block.type === "compaction") {
+        return isNonEmptyString(block.content)
+          ? { type: "compaction", content: block.content }
+          : null;
+      }
+
+      // Pass through image and document blocks (for file attachments)
+      if (block.type === "image" && block.source) {
+        return block;
+      }
+
+      if (block.type === "document" && block.source) {
+        return block;
+      }
+
+      return null;
+    })
+    .filter(Boolean);
+
+  if (cleaned.length === 1 && cleaned[0].type === "text") {
+    return cleaned[0].text;
+  }
+
+  return cleaned;
+}
+
+// ── Health check ──────────────────────────────────────────────────────────────
+app.get("/health", (req, res) => res.json({ ok: true }));
+
+// ── Serve React frontend ──────────────────────────────────────────────────────
+app.use(express.static(CLIENT_DIST));
+
+// ── Auth middleware (API routes only) ─────────────────────────────────────────
+app.use((req, res, next) => {
+  if (!req.path.startsWith("/api")) return next();
+  if (req.path === "/api/auth") return next();
+  // File downloads use token query param for browser-direct access
+  if (req.path.startsWith("/api/files/") && req.method === "GET" && req.query.token) {
+    if (req.query.token !== process.env.APP_PASSWORD) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    return next();
+  }
+
+  const token = req.headers["x-auth-token"];
+  if (!token || token !== process.env.APP_PASSWORD) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  next();
+});
+
+// ── Auth endpoint ─────────────────────────────────────────────────────────────
+app.post("/api/auth", (req, res) => {
+  const { password, username } = req.body;
+
+  if (!username?.trim()) {
+    return res
+      .status(400)
+      .json({ success: false, error: "Username required" });
+  }
+
+  if (password === process.env.APP_PASSWORD) {
+    res.json({
+      success: true,
+      token: process.env.APP_PASSWORD,
+      username: username.trim().toLowerCase(),
+    });
+  } else {
+    res.status(401).json({ success: false, error: "Invalid password" });
+  }
+});
+
+// ── Conversations CRUD ────────────────────────────────────────────────────────
+
+// GET all conversations for a user
+app.get("/api/conversations", async (req, res) => {
+  const username = req.headers["x-username"];
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  try {
+    const result = await pool.query(
+      "SELECT id, title, model, system, created_at, updated_at FROM conversations WHERE username = $1 ORDER BY updated_at DESC",
+      [username]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+// GET a single conversation with its messages
+app.get("/api/conversations/:id", async (req, res) => {
+  const username = req.headers["x-username"];
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  try {
+    const convo = await pool.query(
+      "SELECT * FROM conversations WHERE id = $1 AND username = $2",
+      [req.params.id, username]
+    );
+
+    if (convo.rows.length === 0) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    const messages = await pool.query(
+      `SELECT id, role, content, usage, created_at
+       FROM messages
+       WHERE conversation_id = $1
+       ORDER BY created_at ASC, id ASC`,
+      [req.params.id]
+    );
+
+    const parsed = messages.rows.map((m) => {
+      let content = m.content;
+
+      try {
+        const parsedJson = JSON.parse(content);
+        content = sanitizeContent(parsedJson);
+      } catch {
+        content = sanitizeContent(content);
+      }
+
+      return {
+        id: m.id,
+        role: m.role,
+        content,
+        usage: m.usage,
+        created_at: m.created_at,
+      };
+    });
+
+    res.json({ ...convo.rows[0], messages: parsed });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+// POST create a new conversation
+app.post("/api/conversations", async (req, res) => {
+  const username = req.headers["x-username"];
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  const { id, title, model, system, created_at, updated_at } = req.body;
+
+  try {
+    await pool.query(
+      "INSERT INTO conversations (id, username, title, model, system, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+      [id, username, title || "New conversation", model, system || "", created_at, updated_at]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+// PATCH update conversation metadata (title, model, system)
+app.patch("/api/conversations/:id", async (req, res) => {
+  const username = req.headers["x-username"];
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  const { title, model, system } = req.body;
+  const now = Date.now();
+
+  try {
+    await pool.query(
+      `UPDATE conversations SET
+        title = COALESCE($1, title),
+        model = COALESCE($2, model),
+        system = COALESCE($3, system),
+        updated_at = $4
+       WHERE id = $5 AND username = $6`,
+      [title, model, system, now, req.params.id, username]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+// DELETE a conversation
+app.delete("/api/conversations/:id", async (req, res) => {
+  const username = req.headers["x-username"];
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  try {
+    await pool.query(
+      "DELETE FROM conversations WHERE id = $1 AND username = $2",
+      [req.params.id, username]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+// POST add a message to a conversation
+app.post("/api/conversations/:id/messages", async (req, res) => {
+  const username = req.headers["x-username"];
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  const { role, content, usage, created_at } = req.body;
+  const now = created_at || Date.now();
+
+  const cleanedContent = sanitizeContent(content);
+  const contentStr =
+    typeof cleanedContent === "string"
+      ? cleanedContent
+      : JSON.stringify(cleanedContent);
+
+  try {
+    await pool.query(
+      "INSERT INTO messages (conversation_id, username, role, content, usage, created_at) VALUES ($1,$2,$3,$4,$5,$6)",
+      [req.params.id, username, role, contentStr, usage ? JSON.stringify(usage) : null, now]
+    );
+
+    await pool.query(
+      "UPDATE conversations SET updated_at = $1 WHERE id = $2",
+      [now, req.params.id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+// DELETE a message from a conversation
+// If deleting a user message, also delete the assistant message immediately after it.
+app.delete("/api/conversations/:id/messages/:messageId", async (req, res) => {
+  const username = req.headers["x-username"];
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  const { id: conversationId, messageId } = req.params;
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const convoResult = await client.query(
+      "SELECT id FROM conversations WHERE id = $1 AND username = $2",
+      [conversationId, username]
+    );
+
+    if (convoResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Conversation not found" });
+    }
+
+    const targetResult = await client.query(
+      `SELECT id, role, created_at
+       FROM messages
+       WHERE id = $1 AND conversation_id = $2 AND username = $3`,
+      [messageId, conversationId, username]
+    );
+
+    if (targetResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Message not found" });
+    }
+
+    const target = targetResult.rows[0];
+    const idsToDelete = [target.id];
+
+    if (target.role === "user") {
+      const nextAssistantResult = await client.query(
+        `SELECT id
+         FROM messages
+         WHERE conversation_id = $1
+           AND username = $2
+           AND role = 'assistant'
+           AND (
+             created_at > $3
+             OR (created_at = $3 AND id > $4)
+           )
+         ORDER BY created_at ASC, id ASC
+         LIMIT 1`,
+        [conversationId, username, target.created_at, target.id]
+      );
+
+      if (nextAssistantResult.rows.length > 0) {
+        idsToDelete.push(nextAssistantResult.rows[0].id);
+      }
+    }
+
+    await client.query(
+      `DELETE FROM messages
+       WHERE conversation_id = $1
+         AND username = $2
+         AND id = ANY($3::int[])`,
+      [conversationId, username, idsToDelete]
+    );
+
+    const latestRemaining = await client.query(
+      `SELECT created_at
+       FROM messages
+       WHERE conversation_id = $1
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [conversationId]
+    );
+
+    await client.query(
+      "UPDATE conversations SET updated_at = $1 WHERE id = $2",
+      [latestRemaining.rows[0]?.created_at || Date.now(), conversationId]
+    );
+
+    await client.query("COMMIT");
+
+    res.json({ success: true, deleted_ids: idsToDelete });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error(err);
+    res.status(500).json({ error: "Database error" });
+  } finally {
+    client.release();
+  }
+});
+
+// ── File upload ──────────────────────────────────────────────────────────────
+app.post("/api/conversations/:id/files", upload.array("files", 10), async (req, res) => {
+  const username = req.headers["x-username"];
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  const conversationId = req.params.id;
+
+  try {
+    // Verify conversation belongs to user
+    const convo = await pool.query(
+      "SELECT id FROM conversations WHERE id = $1 AND username = $2",
+      [conversationId, username]
+    );
+    if (convo.rows.length === 0) {
+      // Clean up uploaded files
+      for (const f of req.files) fs.unlinkSync(f.path);
+      return res.status(404).json({ error: "Conversation not found" });
+    }
+
+    const results = [];
+    for (const f of req.files) {
+      const fileId = crypto.randomUUID();
+      const now = Date.now();
+      await pool.query(
+        "INSERT INTO files (id, conversation_id, username, original_name, stored_name, mime_type, size_bytes, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+        [fileId, conversationId, username, f.originalname, f.filename, f.mimetype, f.size, now]
+      );
+      results.push({
+        id: fileId,
+        original_name: f.originalname,
+        mime_type: f.mimetype,
+        size_bytes: f.size,
+        created_at: now,
+      });
+    }
+
+    res.json({ success: true, files: results });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Upload failed" });
+  }
+});
+
+// GET list files for a conversation
+app.get("/api/conversations/:id/files", async (req, res) => {
+  const username = req.headers["x-username"];
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  try {
+    const result = await pool.query(
+      "SELECT id, original_name, mime_type, size_bytes, created_at FROM files WHERE conversation_id = $1 AND username = $2 ORDER BY created_at ASC",
+      [req.params.id, username]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+// GET download a file
+app.get("/api/files/:fileId", async (req, res) => {
+  const username = req.headers["x-username"] || req.query.username;
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  try {
+    const result = await pool.query(
+      "SELECT * FROM files WHERE id = $1 AND username = $2",
+      [req.params.fileId, username]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: "Not found" });
+
+    const file = result.rows[0];
+    const filePath = path.join(UPLOAD_DIR, file.stored_name);
+
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File missing from disk" });
+
+    res.setHeader("Content-Disposition", `attachment; filename="${file.original_name}"`);
+    res.setHeader("Content-Type", file.mime_type);
+    fs.createReadStream(filePath).pipe(res);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Download failed" });
+  }
+});
+
+// POST get base64 content for files (used when sending to Claude)
+app.post("/api/files/content", async (req, res) => {
+  const username = req.headers["x-username"];
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  const { fileIds } = req.body;
+  if (!Array.isArray(fileIds) || fileIds.length === 0) {
+    return res.status(400).json({ error: "fileIds required" });
+  }
+
+  try {
+    const result = await pool.query(
+      "SELECT id, stored_name, original_name, mime_type FROM files WHERE id = ANY($1::text[]) AND username = $2",
+      [fileIds, username]
+    );
+
+    const contents = [];
+    for (const file of result.rows) {
+      const filePath = path.join(UPLOAD_DIR, file.stored_name);
+      if (!fs.existsSync(filePath)) continue;
+
+      const data = fs.readFileSync(filePath);
+      const base64 = data.toString("base64");
+
+      // Determine Anthropic content block type
+      const isImage = /^image\/(jpeg|png|gif|webp)$/i.test(file.mime_type);
+      const isPdf = file.mime_type === "application/pdf";
+
+      if (isImage) {
+        contents.push({
+          id: file.id,
+          original_name: file.original_name,
+          block: {
+            type: "image",
+            source: { type: "base64", media_type: file.mime_type, data: base64 },
+          },
+        });
+      } else if (isPdf) {
+        contents.push({
+          id: file.id,
+          original_name: file.original_name,
+          block: {
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: base64 },
+          },
+        });
+      } else {
+        // For text-based files, read as text and include as a text block
+        let textContent;
+        try {
+          textContent = data.toString("utf-8");
+        } catch {
+          textContent = `[Binary file: ${file.original_name}]`;
+        }
+        contents.push({
+          id: file.id,
+          original_name: file.original_name,
+          block: {
+            type: "text",
+            text: `<file name="${file.original_name}">\n${textContent}\n</file>`,
+          },
+        });
+      }
+    }
+
+    res.json({ contents });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to read files" });
+  }
+});
+
+function buildAnthropicRequestBody({
+  messages,
+  system,
+  model,
+  temperature,
+  max_tokens,
+}) {
+  const cleanMessages = (messages || [])
+    .map((msg, i, arr) => {
+      const cleanedContent = sanitizeContent(msg.content);
+      const isLastUser = msg.role === "user" && i === arr.length - 1;
+
+      if (
+        cleanedContent === "" ||
+        (Array.isArray(cleanedContent) && cleanedContent.length === 0)
+      ) {
+        return null;
+      }
+
+      if (Array.isArray(cleanedContent)) {
+        if (msg.role === "assistant") {
+          const blocks = cleanedContent.map((block) => {
+            if (block.type === "compaction") {
+              return { ...block, cache_control: { type: "ephemeral" } };
+            }
+            return block;
+          });
+
+          return { role: msg.role, content: blocks };
+        }
+
+        // Check if there are non-text blocks (image, document)
+        const hasFileBlocks = cleanedContent.some(
+          (b) => b.type === "image" || b.type === "document"
+        );
+
+        if (hasFileBlocks) {
+          // Keep all blocks as-is, add cache_control to last text block if last user
+          const blocks = cleanedContent.map((block) => ({ ...block }));
+          if (isLastUser && blocks.length > 0) {
+            // Add cache_control to the last text block
+            for (let j = blocks.length - 1; j >= 0; j--) {
+              if (blocks[j].type === "text") {
+                blocks[j].cache_control = { type: "ephemeral" };
+                break;
+              }
+            }
+          }
+          return { role: msg.role, content: blocks };
+        }
+
+        const text = cleanedContent
+          .filter((b) => b.type === "text")
+          .map((b) => b.text || "")
+          .join("");
+
+        if (!text.trim()) return null;
+
+        if (isLastUser) {
+          return {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text,
+                cache_control: { type: "ephemeral" },
+              },
+            ],
+          };
+        }
+
+        return { role: msg.role, content: text };
+      }
+
+      const text = typeof cleanedContent === "string" ? cleanedContent : "";
+      if (!text.trim()) return null;
+
+      if (isLastUser) {
+        return {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text,
+              cache_control: { type: "ephemeral" },
+            },
+          ],
+        };
+      }
+
+      return { role: msg.role, content: text };
+    })
+    .filter(Boolean);
+
+  const requestBody = {
+    model,
+    messages: cleanMessages,
   };
 
-  const [promptTokens, setPromptTokens] = useState(null);
-  const [promptTokensLoading, setPromptTokensLoading] = useState(false);
-  const [promptTokensError, setPromptTokensError] = useState(null);
-  const tokenCountReqRef = useRef(0);
-  const [temperature, setTemperature] = useState(1);
-  const [maxTokens,   setMaxTokens]   = useState(DEFAULT_MAX_TOKENS);
-  const [streaming,   setStreaming]   = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [systemOpen,  setSystemOpen]  = useState(true);
-  const [theme,       setTheme]       = useState(() => localStorage.getItem("theme") || "dark");
+  if (typeof temperature === "number") requestBody.temperature = temperature;
+  if (typeof max_tokens === "number") requestBody.max_tokens = max_tokens;
 
-  const bottomRef = useRef(null);
-  const abortRef  = useRef(null);
+  if (system && system.trim()) {
+    requestBody.system = [
+      {
+        type: "text",
+        text: system,
+        cache_control: { type: "ephemeral" },
+      },
+    ];
+  }
 
-  const activeConvo    = convos.find((c) => c.id === activeId) || null;
-  const messages       = msgCache[activeId] || [];
-  const system         = activeConvo?.system || "";
-  const model          = activeConvo?.model  || DEFAULT_MODEL;
+  requestBody.context_management = {
+    edits: [
+      {
+        type: "compact_20260112",
+        "trigger": {"type": "input_tokens", "value": 999999},
+      },
+    ],
+  };
 
-  // Keep a ref to messages so the token counter effect can read the latest
-  // value without needing it as a dependency (avoids re-triggering on every
-  // streaming chunk, which was the main cause of typing lag).
-  const messagesRef = useRef(messages);
-  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  return requestBody;
+}
 
-  // ── Prompt token counter (Claude Token Count API) ──
-  useEffect(() => {
-    const trimmed = input.trim();
+async function anthropicFetch(path, body) {
+  console.log("🧠 Sending to Anthropic model:", body.model);
+  console.log(
+    "🧪 Beta header:",
+    "context-1m-2025-08-07,compact-2026-01-12"
+  );
 
-    // Only show a count when there is something to send (and we're not already streaming)
-    if (!activeId || !trimmed || streaming) {
-      setPromptTokens(null);
-      setPromptTokensError(null);
-      setPromptTokensLoading(false);
+  return fetch(`https://api.anthropic.com${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+      "anthropic-beta": "context-1m-2025-08-07,compact-2026-01-12",
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+// ── Token counting (prompt tracker) ───────────────────────────────────────────
+app.post("/api/count-tokens", async (req, res) => {
+  const { messages, system, model } = req.body;
+
+  try {
+    const body = buildAnthropicRequestBody({
+      messages,
+      system,
+      model: model || "claude-opus-4-6",
+    });
+
+    const response = await anthropicFetch("/v1/messages/count_tokens", body);
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: data?.error?.message || "Token count failed",
+      });
+    }
+
+    return res.json({ input_tokens: data.input_tokens });
+  } catch (err) {
+    console.error("Count tokens error:", err);
+    return res.status(500).json({ error: err.message || "Server error" });
+  }
+});
+
+// ── Chat endpoint (streaming) ─────────────────────────────────────────────────
+app.post("/api/chat", async (req, res) => {
+  const { messages, system, model, temperature, max_tokens } = req.body;
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  try {
+    const requestBody = buildAnthropicRequestBody({
+      messages,
+      system,
+      model: model || "claude-opus-4-6",
+      temperature: temperature ?? 1,
+      max_tokens: max_tokens || 32000,
+    });
+
+    requestBody.stream = true;
+
+    console.log("🧠 MODEL BEING SENT TO ANTHROPIC:", requestBody.model);
+
+    const response = await anthropicFetch("/v1/messages", requestBody);
+
+    if (!response.ok) {
+      const error = await response.json();
+      res.write(
+        `data: ${JSON.stringify({
+          type: "error",
+          error: error.error?.message || "API error",
+        })}\n\n`
+      );
+      res.end();
       return;
     }
 
-    const reqId = ++tokenCountReqRef.current;
-    setPromptTokensLoading(true);
-    setPromptTokensError(null);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
 
-    const timer = setTimeout(() => {
-      (async () => {
+    let currentBlockType = null;
+    let currentCompactionContent = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      for (const line of decoder.decode(value).split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+
+        const data = line.slice(6);
+        if (data === "[DONE]") continue;
+
         try {
-          const payload = {
-            model,
-            system,
-            messages: [
-              ...(messagesRef.current || []).filter((m) => !m.streaming && m.content),
-              { role: "user", content: trimmed },
-            ],
-          };
+          const parsed = JSON.parse(data);
 
-          const data = await apiFetch("/api/count-tokens", {
-            method: "POST",
-            headers: apiHeaders(token, username),
-            body: JSON.stringify(payload),
-          });
+          if (parsed.type === "content_block_start") {
+            currentBlockType = parsed.content_block?.type || null;
 
-          if (tokenCountReqRef.current !== reqId) return;
-          setPromptTokens(data.input_tokens);
-        } catch (err) {
-          if (tokenCountReqRef.current !== reqId) return;
-          setPromptTokens(null);
-          setPromptTokensError("token count failed");
-        } finally {
-          if (tokenCountReqRef.current === reqId) setPromptTokensLoading(false);
-        }
-      })();
-    }, 350);
-
-    return () => clearTimeout(timer);
-  }, [input, activeId, model, system, streaming, token, username]);
-
-  // ── Theme ──
-  useEffect(() => { document.documentElement.setAttribute("data-theme", theme); localStorage.setItem("theme", theme); }, [theme]);
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
-  const toggleTheme = () => setTheme((t) => t === "dark" ? "light" : "dark");
-
-  // ── Load conversations on login ──
-  useEffect(() => {
-    if (!token || !username) return;
-    loadConversations();
-  }, [token, username]);
-
-  const loadConversations = async () => {
-    setLoadingConvos(true);
-    try {
-      const data = await apiFetch("/api/conversations", { headers: apiHeaders(token, username) });
-      setConvos(data);
-      if (data.length > 0) setActiveId(data[0].id);
-    } catch (err) { console.error("Failed to load conversations:", err); }
-    setLoadingConvos(false);
-  };
-
-  // ── Load messages when switching conversations ──
-  useEffect(() => {
-    if (!activeId || msgCache[activeId]) return;
-    loadMessages(activeId);
-  }, [activeId]);
-
-  const loadMessages = async (id) => {
-    try {
-      const data = await apiFetch(`/api/conversations/${id}`, { headers: apiHeaders(token, username) });
-      setMsgCache((prev) => ({ ...prev, [id]: data.messages || [] }));
-      // Also sync any metadata updates
-      setConvos((prev) => prev.map((c) => c.id === id ? { ...c, system: data.system, model: data.model } : c));
-    } catch (err) { console.error("Failed to load messages:", err); }
-  };
-
-  // ── Auth ──
-  const handleLogin = (t, u) => {
-    sessionStorage.setItem("auth_token",   t);
-    sessionStorage.setItem("auth_username", u);
-    setToken(t); setUsername(u);
-  };
-  const handleLogout = () => {
-    sessionStorage.removeItem("auth_token");
-    sessionStorage.removeItem("auth_username");
-    setToken(""); setUsername(""); setConvos([]); setActiveId(null); setMsgCache({}); setDraftCache({});
-  };
-
-  // ── Conversations ──
-  const newChat = async () => {
-    const convo = newConvoObj();
-    try {
-      await apiFetch("/api/conversations", { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify(convo) });
-      setConvos((prev) => [convo, ...prev]);
-      setMsgCache((prev) => ({ ...prev, [convo.id]: [] }));
-      setActiveId(convo.id);
-    } catch (err) { console.error("Failed to create conversation:", err); }
-  };
-
-  const selectConvo = (id) => { if (streaming) stopStreaming(); setActiveId(id); };
-
-  const deleteConvo = async (id) => {
-    try {
-      await apiFetch(`/api/conversations/${id}`, { method: "DELETE", headers: apiHeaders(token, username) });
-      setConvos((prev) => prev.filter((c) => c.id !== id));
-      setMsgCache((prev) => { const n = { ...prev }; delete n[id]; return n; });
-      setDraftCache((prev) => { const n = { ...prev }; delete n[id]; return n; });
-      if (activeId === id) {
-        const remaining = convos.filter((c) => c.id !== id);
-        setActiveId(remaining.length > 0 ? remaining[0].id : null);
-      }
-    } catch (err) { console.error("Failed to delete:", err); }
-  };
-
-  const renameConvo = async (id, title) => {
-    setConvos((prev) => prev.map((c) => c.id === id ? { ...c, title } : c));
-    try { await apiFetch(`/api/conversations/${id}`, { method: "PATCH", headers: apiHeaders(token, username), body: JSON.stringify({ title }) }); }
-    catch (err) { console.error("Failed to rename:", err); }
-  };
-
-  const updateConvoMeta = async (field, value) => {
-    if (!activeId) {
-      // No active convo — create one first
-      const convo = newConvoObj();
-      convo[field] = value;
-      try {
-        await apiFetch("/api/conversations", { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify(convo) });
-        setConvos((prev) => [convo, ...prev]);
-        setMsgCache((prev) => ({ ...prev, [convo.id]: [] }));
-        setActiveId(convo.id);
-      } catch (err) { console.error(err); }
-    } else {
-      setConvos((prev) => prev.map((c) => c.id === activeId ? { ...c, [field]: value } : c));
-      try { await apiFetch(`/api/conversations/${activeId}`, { method: "PATCH", headers: apiHeaders(token, username), body: JSON.stringify({ [field]: value }) }); }
-      catch (err) { console.error(err); }
-    }
-  };
-
-  const clearConversation = async () => {
-    if (streaming) stopStreaming();
-    if (!activeId) return;
-    // Delete and recreate as fresh
-    await deleteConvo(activeId);
-    await newChat();
-  };
-
-  // ── Send message ──
-  const sendMessage = useCallback(async () => {
-    if (!input.trim() || streaming) return;
-
-    let currentId = activeId;
-    let currentConvo = activeConvo;
-
-    // Create convo if none active
-    if (!currentId) {
-      const convo = newConvoObj(DEFAULT_MODEL);
-      try {
-        await apiFetch("/api/conversations", { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify(convo) });
-        setConvos((prev) => [convo, ...prev]);
-        setMsgCache((prev) => ({ ...prev, [convo.id]: [] }));
-        setActiveId(convo.id);
-        currentId = convo.id;
-        currentConvo = convo;
-      } catch (err) { console.error(err); return; }
-    }
-
-    const currentMessages = msgCache[currentId] || [];
-    const userMsg = { role: "user", content: input.trim() };
-    const newMessages = [...currentMessages, userMsg];
-
-    // Optimistically update UI
-    setMsgCache((prev) => ({ ...prev, [currentId]: [...newMessages, { role: "assistant", content: "", streaming: true }] }));
-
-    // Auto-title on first message
-    if (currentMessages.length === 0) {
-      const title = titleFromMessages(newMessages);
-      setConvos((prev) => prev.map((c) => c.id === currentId ? { ...c, title } : c));
-      apiFetch(`/api/conversations/${currentId}`, { method: "PATCH", headers: apiHeaders(token, username), body: JSON.stringify({ title }) }).catch(console.error);
-    }
-
-    // Clear draft for this conversation
-    setDraftCache((prev) => ({ ...prev, [currentId]: "" }));
-    setStreaming(true);
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    let fullText = "", usageData = {};
-
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: apiHeaders(token, username),
-        body: JSON.stringify({ messages: newMessages, system: currentConvo?.system || "", model: currentConvo?.model || DEFAULT_MODEL, temperature, max_tokens: maxTokens }),
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error("Request failed");
-
-      const reader  = res.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        for (const line of decoder.decode(value).split("\n")) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const parsed = JSON.parse(line.slice(6));
-            if (parsed.type === "text") {
-              fullText += parsed.text;
-              setMsgCache((prev) => {
-                const msgs = [...(prev[currentId] || [])];
-                msgs[msgs.length - 1] = { role: "assistant", content: fullText, streaming: true };
-                return { ...prev, [currentId]: msgs };
-              });
+            if (currentBlockType === "compaction") {
+              currentCompactionContent = "";
+              res.write(
+                `data: ${JSON.stringify({ type: "compaction_start" })}\n\n`
+              );
             }
-            if (parsed.type === "usage_start") usageData = { ...usageData, ...parsed.usage };
-            if (parsed.type === "usage")       usageData = { ...usageData, ...parsed.usage };
-            if (parsed.type === "done") {
-              const assistantMsg = { role: "assistant", content: fullText, usage: usageData };
-              setMsgCache((prev) => {
-                const msgs = [...(prev[currentId] || [])];
-                msgs[msgs.length - 1] = assistantMsg;
-                return { ...prev, [currentId]: msgs };
-              });
-              // Persist sequentially with guaranteed timestamp gap
-              const userTs = Date.now();
-              const assistantTs = userTs + 1;
-              try {
-                await apiFetch(`/api/conversations/${currentId}/messages`, { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify({ ...userMsg, created_at: userTs }) });
-                await apiFetch(`/api/conversations/${currentId}/messages`, { method: "POST", headers: apiHeaders(token, username), body: JSON.stringify({ ...assistantMsg, created_at: assistantTs }) });
-              } catch (e) { console.error("Failed to save messages:", e); }
+          }
+
+          if (
+            parsed.type === "content_block_delta" &&
+            parsed.delta?.type === "text_delta"
+          ) {
+            res.write(
+              `data: ${JSON.stringify({
+                type: "text",
+                text: parsed.delta.text,
+              })}\n\n`
+            );
+          }
+
+          if (
+            parsed.type === "content_block_delta" &&
+            parsed.delta?.type === "compaction_delta"
+          ) {
+            currentCompactionContent += parsed.delta.content || "";
+          }
+
+          if (parsed.type === "content_block_stop") {
+            if (
+              currentBlockType === "compaction" &&
+              currentCompactionContent.trim()
+            ) {
+              res.write(
+                `data: ${JSON.stringify({
+                  type: "compaction",
+                  content: currentCompactionContent,
+                })}\n\n`
+              );
             }
-            if (parsed.type === "error") {
-              setMsgCache((prev) => { const msgs = [...(prev[currentId] || [])]; msgs[msgs.length - 1] = { role: "assistant", content: `⚠️ Error: ${parsed.error}`, streaming: false }; return { ...prev, [currentId]: msgs }; });
+
+            currentBlockType = null;
+            currentCompactionContent = "";
+          }
+
+          if (parsed.type === "message_delta" && parsed.usage) {
+            res.write(
+              `data: ${JSON.stringify({
+                type: "usage",
+                usage: parsed.usage,
+              })}\n\n`
+            );
+          }
+
+          if (parsed.type === "message_start" && parsed.message?.usage) {
+            res.write(
+              `data: ${JSON.stringify({
+                type: "usage_start",
+                usage: parsed.message.usage,
+              })}\n\n`
+            );
+          }
+
+          if (parsed.type === "message_delta") {
+            if (parsed.usage?.iterations) {
+              res.write(
+                `data: ${JSON.stringify({
+                  type: "usage_iterations",
+                  iterations: parsed.usage.iterations,
+                })}\n\n`
+              );
             }
-          } catch { /* skip */ }
+          }
+        } catch {
+          // skip malformed chunks
         }
       }
-    } catch (err) {
-      if (err.name !== "AbortError") {
-        setMsgCache((prev) => { const msgs = [...(prev[currentId] || [])]; msgs[msgs.length - 1] = { role: "assistant", content: `⚠️ Error: ${err.message}`, streaming: false }; return { ...prev, [currentId]: msgs }; });
-      }
     }
-    setStreaming(false);
-  }, [input, msgCache, activeId, activeConvo, streaming, token, username, temperature, maxTokens]);
 
-  const stopStreaming = () => {
-    abortRef.current?.abort();
-    setStreaming(false);
-    if (!activeId) return;
-    setMsgCache((prev) => {
-      const msgs = [...(prev[activeId] || [])];
-      const last = msgs[msgs.length - 1];
-      if (last?.streaming) msgs[msgs.length - 1] = { ...last, streaming: false };
-      return { ...prev, [activeId]: msgs };
+    res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+    res.end();
+  } catch (err) {
+    console.error("Error:", err);
+    res.write(
+      `data: ${JSON.stringify({
+        type: "error",
+        error: err.message,
+      })}\n\n`
+    );
+    res.end();
+  }
+});
+
+// ── Catch-all: serve React app ────────────────────────────────────────────────
+app.get("*", (req, res) => {
+  res.sendFile(path.join(CLIENT_DIST, "index.html"));
+});
+
+// ── Start server ──────────────────────────────────────────────────────────────
+initDB()
+  .then(() => {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on port ${PORT}`);
     });
-  };
-
-  const handleKeyDown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendMessage(); } };
-
-  if (!token || !username) return <LoginScreen onLogin={handleLogin} />;
-
-  return (
-    <div className="app">
-      <header className="header">
-        <div className="header-left">
-          <button className="sidebar-toggle" onClick={() => setSidebarOpen((v) => !v)}>{sidebarOpen ? "◀" : "▶"}</button>
-          <span className="header-title"><span className="logo-bracket">[</span>WORKBENCH<span className="logo-bracket">]</span></span>
-          <span className="header-user">@{username}</span>
-        </div>
-        <div className="header-right">
-          <select value={model} onChange={(e) => updateConvoMeta("model", e.target.value)} className="model-select">
-            {MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-          </select>
-          <button className="header-btn theme-btn"           onClick={toggleTheme}       title="toggle theme">{theme === "dark" ? "☀" : "☾"}</button>
-          <button className="header-btn clear-btn"           onClick={clearConversation}>clear</button>
-          <button className="header-btn logout-btn"          onClick={handleLogout}>logout</button>
-        </div>
-      </header>
-
-      <div className="main-layout">
-        {sidebarOpen && (
-          <aside className="sidebar">
-            <div className="sidebar-section convo-section">
-              <div className="convo-section-header">
-                <p className="section-label" style={{marginBottom: 0}}>conversations</p>
-                <button className="new-chat-sidebar-btn" onClick={newChat}>+ new</button>
-              </div>
-              {loadingConvos && <p className="convo-empty">loading...</p>}
-              {!loadingConvos && convos.length === 0 && <p className="convo-empty">no conversations yet</p>}
-              <div className="convo-list">
-                {convos.map((c) => (
-                  <ConvoItem key={c.id} convo={c} active={c.id === activeId} onSelect={selectConvo} onDelete={deleteConvo} onRename={renameConvo} />
-                ))}
-              </div>
-            </div>
-
-            <div className="sidebar-section system-section">
-              <button className="section-toggle" onClick={() => setSystemOpen((v) => !v)}>
-                system prompt {systemOpen ? "▾" : "▸"}
-              </button>
-              {systemOpen && (
-                <textarea className="system-textarea" placeholder="You are a helpful assistant..." value={system}
-                  onChange={(e) => updateConvoMeta("system", e.target.value)} />
-              )}
-            </div>
-
-            <div className="sidebar-section">
-              <p className="section-label">parameters</p>
-              <div className="param-row">
-                <label>temperature <span className="param-value">{temperature}</span></label>
-                <input type="range" min="0" max="1" step="0.01" value={temperature} onChange={(e) => setTemperature(parseFloat(e.target.value))} className="slider" />
-              </div>
-              <div className="param-row">
-                <label>max tokens <span className="param-value">{maxTokens.toLocaleString()}</span></label>
-                <input type="range" min="256" max="32000" step="256" value={maxTokens} onChange={(e) => setMaxTokens(parseInt(e.target.value))} className="slider" />
-              </div>
-            </div>
-
-            <div className="sidebar-section">
-              <p className="section-label">active features</p>
-              <div className="badge-list">
-                <span className="badge">context-1m</span>
-                <span className="badge">compact</span>
-                <span className="badge">cache_control</span>
-              </div>
-            </div>
-          </aside>
-        )}
-
-        <main className="chat-area">
-          <div className="messages">
-            {messages.length === 0 && (
-              <div className="empty-state">
-                <p>start a conversation</p>
-                <p className="empty-hint">⌘↵ or Ctrl↵ to send</p>
-              </div>
-            )}
-            {messages.map((msg, i) => <Message key={i} msg={msg} />)}
-            {streaming && messages[messages.length - 1]?.streaming && <div className="streaming-indicator"><span /><span /><span /></div>}
-            <div ref={bottomRef} />
-          </div>
-
-          <div className="input-area">
-            <textarea className="chat-input" placeholder="send a message..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} rows={3} disabled={streaming} />
-            <div className="input-actions">
-              <span className="input-hint">⌘↵ to send</span>
-              <span className="token-count" title="Claude input tokens for what will be sent">
-                {promptTokensLoading ? "counting…" : (promptTokens !== null ? `${promptTokens} tokens` : "")}
-              </span>
-              {streaming
-                ? <button className="stop-btn" onClick={stopStreaming}>◼ stop</button>
-                : <button className="send-btn" onClick={sendMessage} disabled={!input.trim()}>send ↵</button>}
-            </div>
-          </div>
-        </main>
-      </div>
-    </div>
-  );
-}
+  })
+  .catch((err) => {
+    console.error("Failed to initialize database:", err);
+    process.exit(1);
+  });
