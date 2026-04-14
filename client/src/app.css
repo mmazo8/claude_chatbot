@@ -1383,19 +1383,33 @@ body,
     color: var(--red);
 }
 
-/* Attached chip (on sent messages, downloadable) */
+/* Attached chip (on sent messages) */
 .file-chip.attached {
     background: var(--token-in-bg);
     border: 1px solid var(--token-in-border);
-    color: var(--blue);
-    text-decoration: none;
-    cursor: pointer;
-    transition: all 0.15s;
+    color: var(--text2);
 }
 
-.file-chip.attached:hover {
+.file-dl-btn {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--blue);
+    text-decoration: none;
+    padding: 2px 8px;
+    margin-left: 4px;
+    border: 1px solid var(--token-in-border);
+    border-radius: var(--radius);
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.file-dl-btn:hover {
     border-color: var(--blue);
-    background: rgba(91, 155, 213, 0.08);
+    background: rgba(91, 155, 213, 0.1);
 }
 
 .file-chip-dl {
@@ -1414,4 +1428,82 @@ body,
     flex-wrap: wrap;
     gap: 6px;
     margin-bottom: 8px;
+}
+
+/* ── Sidebar Tabs (conversations / files toggle) ──────────────────────────── */
+.sidebar-tabs {
+    display: flex;
+    gap: 0;
+}
+
+.sidebar-tab {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: lowercase;
+    padding: 4px 10px;
+    background: none;
+    border: 1px solid var(--border2);
+    color: var(--text3);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.sidebar-tab:first-child {
+    border-radius: var(--radius) 0 0 var(--radius);
+    border-right: none;
+}
+
+.sidebar-tab:last-child {
+    border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.sidebar-tab-active {
+    background: var(--bg3);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.sidebar-tab-active+.sidebar-tab {
+    border-left-color: var(--accent);
+}
+
+.sidebar-tab:hover:not(.sidebar-tab-active) {
+    color: var(--text2);
+}
+
+/* ── Files Panel ──────────────────────────────────────────────────────────── */
+.files-panel {
+    overflow-y: auto;
+    flex: 1;
+    padding-top: 4px;
+}
+
+.files-group {
+    margin-bottom: 14px;
+}
+
+.files-group-title {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text3);
+    letter-spacing: 0.06em;
+    padding: 4px 0;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.files-panel-chip {
+    width: 100%;
+    margin-bottom: 3px;
+}
+
+.file-chip-size {
+    flex-shrink: 0;
+    font-size: 9px;
+    color: var(--text3);
+    margin-left: auto;
 }

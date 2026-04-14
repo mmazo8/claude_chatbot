@@ -237,7 +237,12 @@ app.get("/api/conversations/:id", async (req, res) => {
 
       try {
         const parsedJson = JSON.parse(content);
-        content = sanitizeContent(parsedJson);
+        // Preserve {text, files} wrapper for file-bearing user messages
+        if (parsedJson && typeof parsedJson === "object" && !Array.isArray(parsedJson) && parsedJson.files) {
+          content = JSON.stringify(parsedJson);
+        } else {
+          content = sanitizeContent(parsedJson);
+        }
       } catch {
         content = sanitizeContent(content);
       }
@@ -503,7 +508,28 @@ app.get("/api/conversations/:id/files", async (req, res) => {
   }
 });
 
-// GET download a file
+// GET all files for a user (grouped by conversation)
+app.get("/api/files", async (req, res) => {
+  const username = req.headers["x-username"];
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  try {
+    const result = await pool.query(
+      `SELECT f.id, f.original_name, f.mime_type, f.size_bytes, f.created_at, f.conversation_id, c.title as conversation_title
+       FROM files f
+       JOIN conversations c ON f.conversation_id = c.id
+       WHERE f.username = $1
+       ORDER BY f.created_at DESC`,
+      [username]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+// GET download a specific file
 app.get("/api/files/:fileId", async (req, res) => {
   const username = req.headers["x-username"] || req.query.username;
   if (!username) return res.status(400).json({ error: "Username required" });

@@ -106,11 +106,11 @@ const Message = memo(function Message({ msg, token, username }) {
       {msg.files && msg.files.length > 0 && (
         <div className="message-files">
           {msg.files.map((f) => (
-            <a key={f.id} className="file-chip attached" href={fileDownloadUrl(f.id)} target="_blank" rel="noopener noreferrer" title={`Download ${f.original_name}`}>
+            <div key={f.id} className="file-chip attached">
               <span className="file-chip-icon">📎</span>
               <span className="file-chip-name">{f.original_name}</span>
-              <span className="file-chip-dl">↓</span>
-            </a>
+              <a className="file-dl-btn" href={fileDownloadUrl(f.id)} target="_blank" rel="noopener noreferrer">download ↓</a>
+            </div>
           ))}
         </div>
       )}
@@ -177,6 +177,11 @@ export default function App() {
   const [pendingFiles, setPendingFiles] = useState([]);
   const fileInputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
+
+  // Files panel
+  const [filesPanel, setFilesPanel] = useState(false);
+  const [allFiles, setAllFiles] = useState([]);
+  const [loadingFiles, setLoadingFiles] = useState(false);
 
   const input    = activeId ? (draftCache[activeId] ?? "") : "";
   const setInput = (val) => {
@@ -429,6 +434,32 @@ export default function App() {
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   };
 
+  const loadAllFiles = async () => {
+    setLoadingFiles(true);
+    try {
+      const data = await apiFetch("/api/files", { headers: apiHeaders(token, username) });
+      setAllFiles(data);
+    } catch (err) { console.error("Failed to load files:", err); }
+    setLoadingFiles(false);
+  };
+
+  const toggleFilesPanel = () => {
+    const next = !filesPanel;
+    setFilesPanel(next);
+    if (next) loadAllFiles();
+  };
+
+  // Group files by conversation
+  const filesByConvo = allFiles.reduce((acc, f) => {
+    const key = f.conversation_id;
+    if (!acc[key]) acc[key] = { title: f.conversation_title, files: [] };
+    acc[key].files.push(f);
+    return acc;
+  }, {});
+
+  const fileDownloadUrl = (fileId) =>
+    `/api/files/${fileId}?token=${encodeURIComponent(token)}&username=${encodeURIComponent(username)}`;
+
   // ── Send message ──
   const sendMessage = useCallback(async () => {
     if ((!input.trim() && pendingFiles.length === 0) || streaming) return;
@@ -611,16 +642,42 @@ export default function App() {
           <aside className="sidebar">
             <div className="sidebar-section convo-section">
               <div className="convo-section-header">
-                <p className="section-label" style={{marginBottom: 0}}>conversations</p>
-                <button className="new-chat-sidebar-btn" onClick={newChat}>+ new</button>
+                <div className="sidebar-tabs">
+                  <button className={`sidebar-tab ${!filesPanel ? "sidebar-tab-active" : ""}`} onClick={() => setFilesPanel(false)}>conversations</button>
+                  <button className={`sidebar-tab ${filesPanel ? "sidebar-tab-active" : ""}`} onClick={toggleFilesPanel}>files</button>
+                </div>
+                {!filesPanel && <button className="new-chat-sidebar-btn" onClick={newChat}>+ new</button>}
               </div>
-              {loadingConvos && <p className="convo-empty">loading...</p>}
-              {!loadingConvos && convos.length === 0 && <p className="convo-empty">no conversations yet</p>}
-              <div className="convo-list">
-                {convos.map((c) => (
-                  <ConvoItem key={c.id} convo={c} active={c.id === activeId} onSelect={selectConvo} onDelete={deleteConvo} onRename={renameConvo} />
-                ))}
-              </div>
+
+              {!filesPanel ? (
+                <>
+                  {loadingConvos && <p className="convo-empty">loading...</p>}
+                  {!loadingConvos && convos.length === 0 && <p className="convo-empty">no conversations yet</p>}
+                  <div className="convo-list">
+                    {convos.map((c) => (
+                      <ConvoItem key={c.id} convo={c} active={c.id === activeId} onSelect={selectConvo} onDelete={deleteConvo} onRename={renameConvo} />
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="files-panel">
+                  {loadingFiles && <p className="convo-empty">loading...</p>}
+                  {!loadingFiles && allFiles.length === 0 && <p className="convo-empty">no files yet</p>}
+                  {!loadingFiles && Object.entries(filesByConvo).map(([convoId, group]) => (
+                    <div key={convoId} className="files-group">
+                      <p className="files-group-title">{group.title}</p>
+                      {group.files.map((f) => (
+                        <div key={f.id} className="file-chip attached files-panel-chip">
+                          <span className="file-chip-icon">📎</span>
+                          <span className="file-chip-name">{f.original_name}</span>
+                          <span className="file-chip-size">{formatFileSize(f.size_bytes)}</span>
+                          <a className="file-dl-btn" href={fileDownloadUrl(f.id)} target="_blank" rel="noopener noreferrer">↓</a>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="sidebar-section system-section">
